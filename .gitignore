@@ -1,0 +1,36 @@
+# Сборка
+[Bb]in/
+[Oo]bj/
+[Aa]rtifacts/
+*.user
+*.suo
+*.userosscache
+.vs/
+.idea/
+*.swp
+
+# Результаты Native AOT publish
+publish/
+*.dbg
+*.pdb
+
+# Локальные данные приложения
+comments.db
+comments.db-wal
+comments.db-shm
+*.db
+
+# Секреты и локальные пакеты
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem
+secrets.*
+*.nupkg
+
+# Прочее
+*.log
+.DS_Store

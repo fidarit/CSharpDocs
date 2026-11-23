@@ -1,0 +1,36 @@
+# VCS и окружение разработки
+.git
+.gitignore
+.github
+.vs
+.idea
+.agents
+.aws
+.codex
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem
+secrets.*
+*.nupkg
+# Артефакты сборки
+**/bin
+**/obj
+**/publish
+**/artifacts
+TestResults
+
+# Локальные данные и логи
+*.db
+*.db-wal
+*.db-shm
+*.log
+comments.db
+
+# Документация и метаданные репозитория
+README.md
+Dockerfile
+.dockerignore
