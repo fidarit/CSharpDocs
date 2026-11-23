@@ -76,7 +76,7 @@ public sealed class DocsServer
             if (typeScore > 0)
                 results.Add(new SearchHit(typeScore, $"Тип: {type.FullName} [{type.Slug}]\n{Plain(type.Summary)}"));
 
-            foreach (var member in type.Members.Concat(type.Extensions))
+            foreach (var member in type.Members)
             {
                 var memberScore = MatchScore(terms,
                     (member.Name, 800),

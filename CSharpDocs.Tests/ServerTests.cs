@@ -135,6 +135,23 @@ public class ServerTests
     }
 
     [Fact]
+    public void Mcp_Search_Does_Not_Duplicate_Extension_Methods()
+    {
+        var (server, model, db) = Create();
+        try
+        {
+            var extension = model.Types.SelectMany(type => type.Extensions).FirstOrDefault();
+            if (extension is null)
+                Assert.Skip("в сэмпле нет методов-расширений");
+
+            var result = server.SearchDocumentation(extension.Name);
+            var slug = $"[{extension.Owner.Slug}/{extension.Slug}]";
+            Assert.Equal(1, result.Split(slug, StringSplitOptions.None).Length - 1);
+        }
+        finally { File.Delete(db); }
+    }
+
+    [Fact]
     public void Mcp_Read_Only_Rejects_Comment_Writes()
     {
         var model = TestModel.LoadOrSkip();
