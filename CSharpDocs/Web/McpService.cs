@@ -15,7 +15,7 @@ public sealed class McpService(DocsServer docsServer, bool enabled, bool readOnl
             McpServerTool.Create((string query) => docsServer.SearchDocumentation(query), new()
             {
                 Name = "search_documentation",
-                Description = "Ищет типы и члены API по имени, описанию, сигнатуре и комментариям.",
+                Description = "Ищет по словам. Точные имена типов и членов выше сигнатур, описаний и комментариев; возвращает до 10 лучших совпадений со slug для get_documentation.",
             }),
             McpServerTool.Create((string slug) => docsServer.GetDocumentation(slug), new()
             {

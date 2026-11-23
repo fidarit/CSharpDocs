@@ -119,7 +119,10 @@ public class ServerTests
             Assert.Contains(type.FullName, server.GetDocumentation(type.Slug));
             Assert.Contains("Комментарий MCP", server.GetComments(type.Slug));
             Assert.Contains("Комментарий MCP", server.GetDocumentation(type.Slug));
-            Assert.Contains(type.FullName, server.SearchDocumentation(type.Name));
+            var search = server.SearchDocumentation(type.Name);
+            Assert.StartsWith($"Тип: {type.FullName} [{type.Slug}]", search);
+            Assert.True(search.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length <= 10);
+            Assert.Contains("Комментарий MCP", server.SearchDocumentation("Комментарий MCP"));
             Assert.Contains("не найден", server.AddMcpComment("missing", "Бот", "Текст"));
         }
         finally { File.Delete(db); }

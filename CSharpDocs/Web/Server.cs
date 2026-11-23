@@ -9,6 +9,7 @@ namespace CSharpDocs.Web;
 public sealed class DocsServer
 {
     private const int PageSize = 40;
+    private const int SearchResultLimit = 10;
 
     private readonly ApiModel _model;
     private readonly CommentStore _store;
@@ -70,33 +71,80 @@ public sealed class DocsServer
         if (string.IsNullOrWhiteSpace(query))
             return "Укажите поисковый запрос.";
 
-        var needle = query.Trim();
-        var results = new List<string>();
+        var terms = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var results = new List<SearchHit>();
         foreach (var type in _model.Types)
         {
-            var typeText = Join(type.FullName, type.Summary, type.Remarks);
-            if (Contains(typeText, needle))
-                results.Add($"Тип: {type.FullName} [{type.Slug}]\n{Plain(type.Summary)}");
+            var typeScore = MatchScore(terms, (type.Name, 1000), (type.FullName, 900), (type.Summary, 250), (type.Remarks, 150));
+            if (typeScore > 0)
+                results.Add(new SearchHit(typeScore, $"Тип: {type.FullName} [{type.Slug}]\n{Plain(type.Summary)}"));
 
             foreach (var member in type.Members.Concat(type.Extensions))
             {
-                var memberText = Join(member.FullName, member.Signature, member.Summary, member.Remarks, member.Returns);
-                if (Contains(memberText, needle))
-                    results.Add($"{member.Kind}: {member.FullName} [{type.Slug}/{member.Slug}]\n{Plain(member.Summary)}\nСигнатура: {member.Signature}");
+                var memberScore = MatchScore(terms,
+                    (member.Name, 800),
+                    (member.FullName, 700),
+                    (member.Signature, 300),
+                    (member.Summary, 200),
+                    (member.Remarks, 120),
+                    (member.Returns, 100));
+                if (memberScore > 0)
+                    results.Add(new SearchHit(memberScore,
+                        $"{member.Kind}: {member.FullName} [{type.Slug}/{member.Slug}]\n{Plain(member.Summary)}\nСигнатура: {member.Signature}"));
             }
         }
 
         foreach (var comment in _store.All())
         {
-            if (!Contains(Join(comment.TargetTitle, comment.Body), needle))
-                continue;
-            results.Add($"Комментарий: {comment.TargetTitle} [{comment.Target}]\n{comment.Author}: {comment.Body}");
+            var commentScore = MatchScore(terms, (comment.TargetTitle, 250), (comment.Body, 150), (comment.Author, 25));
+            if (commentScore > 0)
+                results.Add(new SearchHit(commentScore,
+                    $"Комментарий: {comment.TargetTitle} [{comment.Target}]\n{comment.Author}: {Limit(comment.Body, 400)}"));
         }
 
         return results.Count == 0
             ? "Ничего не найдено."
-            : string.Join("\n\n", results.Take(50));
+            : string.Join("\n\n", results
+                .OrderByDescending(result => result.Score)
+                .ThenBy(result => result.Text, StringComparer.Ordinal)
+                .Take(SearchResultLimit)
+                .Select(result => result.Text));
     }
+
+    private static int MatchScore(string[] terms, params (string Text, int Weight)[] fields)
+    {
+        var score = 0;
+        foreach (var (text, weight) in fields)
+        {
+            if (text.Length == 0)
+                continue;
+
+            var fieldScore = weight;
+            foreach (var term in terms)
+            {
+                var comparison = StringComparison.OrdinalIgnoreCase;
+                var match = string.Equals(text, term, comparison) ? 300
+                    : text.StartsWith(term, comparison) ? 200
+                    : text.Contains(term, comparison) ? 100
+                    : 0;
+                if (match == 0)
+                {
+                    fieldScore = 0;
+                    break;
+                }
+                fieldScore += match;
+            }
+
+            score = Math.Max(score, fieldScore);
+        }
+
+        return score;
+    }
+
+    private static string Limit(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength] + "…";
+
+    private sealed record SearchHit(int Score, string Text);
 
     public string GetDocumentation(string slug)
     {
@@ -192,9 +240,7 @@ public sealed class DocsServer
             text.AppendLine($"- {comment.Author} ({comment.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm}): {comment.Body}");
     }
 
-    private static string Join(params string[] values) => string.Join(' ', values.Where(v => v.Length > 0).Select(Plain));
     private static string Plain(string html) => Data.ModelBuilder.Plain(html);
-    private static bool Contains(string text, string query) => text.Contains(query, StringComparison.OrdinalIgnoreCase);
 
     private static byte[] Gzip(byte[] data)
     {
