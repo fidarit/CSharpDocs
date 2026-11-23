@@ -286,6 +286,7 @@
         var e = byKey[key];
         if (e && e.box) setBoxOpen(e.node, true);
       });
+      expandSingleResultPaths();
       reorderByRank();
       // Текущая страница должна подсвечиваться и во время поиска.
       var active = setActiveClass(currentSlugFromPath());
@@ -293,6 +294,24 @@
       toggleEmptyNotice(keep.size === 0);
     }
     step();
+  }
+
+  function expandSingleResultPaths() {
+    function expandFrom(list) {
+      var visible = Array.prototype.filter.call(list.children, function (li) { return !li.hidden; });
+      if (visible.length !== 1) return;
+
+      var entry = byKey[visible[0].firstChild.dataset.key];
+      if (!entry || !entry.box) return;
+
+      var childList = entry.box.firstElementChild;
+      if (!childList || !Array.prototype.some.call(childList.children, function (li) { return !li.hidden; })) return;
+
+      setBoxOpen(entry.node, true);
+      expandFrom(childList);
+    }
+
+    Array.prototype.forEach.call(treeEl.children, expandFrom);
   }
 
   // Ключи предков текущей страницы (сам активный узел не включаем — его
