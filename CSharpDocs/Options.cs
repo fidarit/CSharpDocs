@@ -11,8 +11,8 @@ public sealed class Options
     public string Title { get; init; } = "API Docs";
     public bool McpEnabled { get; init; }
     public bool McpReadOnly { get; init; }
-    public byte[] Xml { get; init; } = [];
-    public byte[] Dll { get; init; } = [];
+    public byte[] Xml { get; private set; } = [];
+    public byte[] Dll { get; private set; } = [];
 
     public string PackageId { get; init; } = "";
     public string PackageVersion { get; init; } = "";
@@ -89,6 +89,12 @@ public sealed class Options
 
     internal static bool ReadBooleanOption(string? argument, string? environmentValue) =>
         ParseBoolean(argument ?? environmentValue ?? "false");
+
+    public void ReleaseSourceData()
+    {
+        Xml = [];
+        Dll = [];
+    }
 
     private static Dictionary<string, string> ParseArgs(string[] args)
     {

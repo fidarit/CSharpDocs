@@ -32,6 +32,7 @@ public static class ModelBuilder
 
         LinkHierarchy(model);
         InheritDoc.Resolve(model, docs);
+        docs.Clear();
 
         model.Types.Sort((a, b) => string.CompareOrdinal(a.FullName, b.FullName));
         return model;

@@ -11,10 +11,7 @@ using CSharpDocs.Web;
 // метаданных сборки. Комментарии — в SQLite.
 
 var options = Options.FromArgs(args);
-var model = ModelBuilder.Build(
-    new MemoryStream(options.Xml),
-    new MemoryStream(options.Dll),
-    options.Version);
+var model = LoadModel(options);
 model.Title = options.Title;
 model.Meta.XmlSize = options.Xml.Length;
 model.Meta.DllSize = options.Dll.Length;
@@ -22,6 +19,7 @@ model.Meta.PackageId = options.PackageId;
 model.Meta.PackageVersion = options.PackageVersion;
 model.Meta.PackageDescription = options.PackageDescription;
 model.Meta.Authors = options.PackageAuthors;
+options.ReleaseSourceData();
 Console.WriteLine($"Загружено типов: {model.Types.Count}");
 
 var store = new CommentStore(options.DbPath);
@@ -63,4 +61,11 @@ static Dictionary<string, byte[]> LoadStatic()
         result[fileName] = ms.ToArray();
     }
     return result;
+}
+
+static ApiModel LoadModel(Options options)
+{
+    using var xml = new MemoryStream(options.Xml);
+    using var dll = new MemoryStream(options.Dll);
+    return ModelBuilder.Build(xml, dll, options.Version);
 }

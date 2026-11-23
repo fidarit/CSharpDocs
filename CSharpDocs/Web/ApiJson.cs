@@ -17,6 +17,9 @@ public static class ApiJson
     public static string BuildTree(ApiModel model) =>
         JsonSerializer.Serialize(ApiTree.Build(model).Select(ToJsonNode).ToList(), Context.ListApiTreeNodeJson);
 
+    public static void WriteTree(Stream output, ApiModel model) =>
+        JsonSerializer.Serialize(output, ApiTree.Build(model).Select(ToJsonNode).ToList(), Context.ListApiTreeNodeJson);
+
     public static string BuildCounts(IReadOnlyDictionary<string, int> counts) =>
         JsonSerializer.Serialize(counts, Context.IReadOnlyDictionaryStringInt32);
 

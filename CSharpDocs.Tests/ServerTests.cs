@@ -1,4 +1,5 @@
 using System.Text;
+using System.IO.Compression;
 using CSharpDocs.Data;
 using CSharpDocs.Storage;
 using CSharpDocs.Web;
@@ -78,6 +79,11 @@ public class ServerTests
             var gz = server.ApiTree(acceptGzip: true);
             Assert.Equal("gzip", gz.ContentEncoding);
             Assert.True(gz.Body.Length < tree.Body.Length);
+            using var compressed = new MemoryStream(gz.Body);
+            using var gzip = new GZipStream(compressed, CompressionMode.Decompress);
+            using var plain = new MemoryStream();
+            gzip.CopyTo(plain);
+            Assert.Equal(tree.Body, plain.ToArray());
 
             // AJAX-фрагмент: без каркаса страницы (нет <html>), но с контентом типа.
             var withParent = model.Types.First(t => t.Parent is not null);

@@ -16,8 +16,7 @@ public sealed class DocsServer
     private readonly Dictionary<string, byte[]> _staticFiles;
     private readonly bool _mcpReadOnly;
 
-    // Дерево неизменно на весь запуск — сжимаем один раз и отдаём готовые байты.
-    private readonly byte[] _treePlain;
+    // Дерево неизменно на весь запуск — храним сжатую копию.
     private readonly byte[] _treeGzip;
 
     public DocsServer(ApiModel model, CommentStore store, Dictionary<string, byte[]> staticFiles, bool mcpReadOnly = false)
@@ -27,8 +26,7 @@ public sealed class DocsServer
         _staticFiles = staticFiles;
         _mcpReadOnly = mcpReadOnly;
 
-        _treePlain = Encoding.UTF8.GetBytes(ApiJson.BuildTree(model));
-        _treeGzip = Gzip(_treePlain);
+        _treeGzip = BuildCompressedTree(model);
     }
 
     public DocResponse Home(bool fragment = false) => Render("", HomePage(), fragment);
@@ -54,10 +52,9 @@ public sealed class DocsServer
     public DocResponse AllComments(bool fragment = false) => Render("Все комментарии", Pages.AllCommentsPage(_store.All()), fragment);
 
     /// <summary>JSON со всей структурой дерева типов для клиента (gzip при поддержке).</summary>
-    public DocResponse ApiTree(bool acceptGzip = false) =>
-        acceptGzip
-            ? new DocResponse(200, "application/json; charset=utf-8", _treeGzip) { ContentEncoding = "gzip" }
-            : new DocResponse(200, "application/json; charset=utf-8", _treePlain);
+    public DocResponse ApiTree(bool acceptGzip = false) => acceptGzip
+        ? new DocResponse(200, "application/json; charset=utf-8", _treeGzip) { ContentEncoding = "gzip" }
+        : new DocResponse(200, "application/json; charset=utf-8", Gunzip(_treeGzip));
 
     /// <summary>JSON-объект «slug → число комментариев» для индикации в дереве.</summary>
     public DocResponse ApiComments()
@@ -242,12 +239,29 @@ public sealed class DocsServer
 
     private static string Plain(string html) => Data.ModelBuilder.Plain(html);
 
-    private static byte[] Gzip(byte[] data)
+    private static byte[] BuildCompressedTree(ApiModel model)
     {
         using var output = new MemoryStream();
         using (var gzip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true))
-            gzip.Write(data);
+            ApiJson.WriteTree(gzip, model);
         return output.ToArray();
+    }
+
+    private static byte[] Gunzip(byte[] data)
+    {
+        var outputLength = BitConverter.ToUInt32(data, data.Length - sizeof(uint));
+        using var input = new MemoryStream(data);
+        using var gzip = new GZipStream(input, CompressionMode.Decompress);
+        var output = new byte[outputLength];
+        var offset = 0;
+        while (offset < output.Length)
+        {
+            var read = gzip.Read(output, offset, output.Length - offset);
+            if (read == 0)
+                throw new InvalidDataException("Поврежденный gzip-кэш дерева API");
+            offset += read;
+        }
+        return output;
     }
 
     public DocResponse AddComment(CommentForm form)
