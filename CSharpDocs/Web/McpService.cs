@@ -15,17 +15,17 @@ public sealed class McpService(DocsServer docsServer, bool enabled, bool readOnl
             McpServerTool.Create((string query) => docsServer.SearchDocumentation(query), new()
             {
                 Name = "search_documentation",
-                Description = "Ищет по словам. Точные имена типов и членов выше сигнатур, описаний и комментариев; возвращает до 10 лучших совпадений со slug для get_documentation.",
+                Description = "Searches API names, signatures, descriptions, and user comments. Returns up to 10 best matches with slugs for get_documentation.",
             }),
             McpServerTool.Create((string slug) => docsServer.GetDocumentation(slug), new()
             {
                 Name = "get_documentation",
-                Description = "Возвращает документацию элемента API и комментарии к нему.",
+                Description = "Returns API documentation and includes user comments when present. Omits the comments section when there are no comments.",
             }),
             McpServerTool.Create((string slug) => docsServer.GetComments(slug), new()
             {
                 Name = "get_comments",
-                Description = "Возвращает комментарии к элементу API.",
+                Description = "Returns user comments for an API item, or states that there are no comments. Use only when comments are relevant to the user's request; do not call automatically after get_documentation.",
             }),
         };
 
@@ -34,7 +34,7 @@ public sealed class McpService(DocsServer docsServer, bool enabled, bool readOnl
                 docsServer.AddMcpComment(slug, author, body), new()
             {
                 Name = "add_comment",
-                Description = "Добавляет комментарий к типу или члену API по его slug.",
+                Description = "Adds a comment to an API type or member by slug.",
             }));
 
         builder.Services.AddMcpServer()

@@ -98,7 +98,7 @@ public sealed class ApiType
 
     public string KindLabel => Kind switch
     {
-        TypeKind.Class => "класс",
+        TypeKind.Class => "class",
         TypeKind.Struct => "struct",
         TypeKind.Enum => "enum",
         TypeKind.Delegate => "delegate",

@@ -120,16 +120,30 @@ public class ServerTests
         try
         {
             var type = model.Types[0];
+            var documentation = server.GetDocumentation(type.Slug);
+            Assert.Contains(type.FullName, documentation);
+            Assert.DoesNotContain("Comments:", documentation);
+            Assert.Equal("There are no comments yet.", server.GetComments(type.Slug));
+            Assert.Equal("Please provide a search query.", server.SearchDocumentation(" "));
+            Assert.Equal("No results found.", server.SearchDocumentation("no-such-api-symbol-9f28c1"));
+            Assert.Equal("Documentation item not found.", server.GetDocumentation("missing"));
+            Assert.Equal("Documentation item not found.", server.GetComments("missing"));
+
+            Assert.Equal("Comment cannot be empty.", server.AddMcpComment(type.Slug, "Bot", " "));
+            Assert.Equal("Comment exceeds the maximum allowed length.",
+                server.AddMcpComment(type.Slug, "Bot", new string('x', 10001)));
             var added = server.AddMcpComment(type.Slug, "Бот", "Комментарий MCP");
-            Assert.Contains("добавлен", added);
-            Assert.Contains(type.FullName, server.GetDocumentation(type.Slug));
+            Assert.StartsWith("Comment added to ", added);
+            documentation = server.GetDocumentation(type.Slug);
+            Assert.Contains(type.FullName, documentation);
             Assert.Contains("Комментарий MCP", server.GetComments(type.Slug));
-            Assert.Contains("Комментарий MCP", server.GetDocumentation(type.Slug));
+            Assert.Contains("Comments:", documentation);
+            Assert.Contains("Комментарий MCP", documentation);
             var search = server.SearchDocumentation(type.Name);
-            Assert.StartsWith($"Тип: {type.FullName} [{type.Slug}]", search);
+            Assert.StartsWith($"Type: {type.FullName} [{type.Slug}]", search);
             Assert.True(search.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length <= 10);
             Assert.Contains("Комментарий MCP", server.SearchDocumentation("Комментарий MCP"));
-            Assert.Contains("не найден", server.AddMcpComment("missing", "Бот", "Текст"));
+            Assert.Equal("Documentation item not found.", server.AddMcpComment("missing", "Bot", "Text"));
         }
         finally { File.Delete(db); }
     }
@@ -161,7 +175,8 @@ public class ServerTests
         try
         {
             var type = model.Types[0];
-            Assert.Contains("только для чтения", server.AddMcpComment(type.Slug, "Бот", "Текст"));
+            Assert.Equal("Adding comments is disabled because MCP is in read-only mode.",
+                server.AddMcpComment(type.Slug, "Bot", "Text"));
             Assert.Empty(store.All());
         }
         finally { File.Delete(db); }

@@ -66,7 +66,7 @@ public sealed class DocsServer
     public string SearchDocumentation(string query)
     {
         if (string.IsNullOrWhiteSpace(query))
-            return "Укажите поисковый запрос.";
+            return "Please provide a search query.";
 
         var terms = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var results = new List<SearchHit>();
@@ -74,7 +74,7 @@ public sealed class DocsServer
         {
             var typeScore = MatchScore(terms, (type.Name, 1000), (type.FullName, 900), (type.Summary, 250), (type.Remarks, 150));
             if (typeScore > 0)
-                results.Add(new SearchHit(typeScore, $"Тип: {type.FullName} [{type.Slug}]\n{Plain(type.Summary)}"));
+                results.Add(new SearchHit(typeScore, $"Type: {type.FullName} [{type.Slug}]\n{Plain(type.Summary)}"));
 
             foreach (var member in type.Members)
             {
@@ -87,7 +87,7 @@ public sealed class DocsServer
                     (member.Returns, 100));
                 if (memberScore > 0)
                     results.Add(new SearchHit(memberScore,
-                        $"{member.Kind}: {member.FullName} [{type.Slug}/{member.Slug}]\n{Plain(member.Summary)}\nСигнатура: {member.Signature}"));
+                        $"{member.Kind}: {member.FullName} [{type.Slug}/{member.Slug}]\n{Plain(member.Summary)}\nSignature: {member.Signature}"));
             }
         }
 
@@ -96,11 +96,11 @@ public sealed class DocsServer
             var commentScore = MatchScore(terms, (comment.TargetTitle, 250), (comment.Body, 150), (comment.Author, 25));
             if (commentScore > 0)
                 results.Add(new SearchHit(commentScore,
-                    $"Комментарий: {comment.TargetTitle} [{comment.Target}]\n{comment.Author}: {Limit(comment.Body, 400)}"));
+                    $"Comment: {comment.TargetTitle} [{comment.Target}]\n{comment.Author}: {Limit(comment.Body, 400)}"));
         }
 
         return results.Count == 0
-            ? "Ничего не найдено."
+            ? "No results found."
             : string.Join("\n\n", results
                 .OrderByDescending(result => result.Score)
                 .ThenBy(result => result.Text, StringComparer.Ordinal)
@@ -147,16 +147,16 @@ public sealed class DocsServer
     {
         var split = slug.Split('/', 2);
         if (!_model.BySlug.TryGetValue(split[0], out var type))
-            return "Элемент документации не найден.";
+            return "Documentation item not found.";
 
         if (split.Length == 1)
         {
             var text = new StringBuilder()
                 .AppendLine($"{type.KindLabel} {type.FullName}")
                 .AppendLine(type.Summary.Length > 0 ? Plain(type.Summary) : "")
-                .AppendLine(type.Remarks.Length > 0 ? "Примечания: " + Plain(type.Remarks) : "");
+                .AppendLine(type.Remarks.Length > 0 ? "Remarks: " + Plain(type.Remarks) : "");
             if (type.Parent is not null)
-                text.AppendLine("Базовый тип: " + type.Parent.FullName);
+                text.AppendLine("Base type: " + type.Parent.FullName);
             foreach (var typeMember in type.Members.Concat(type.Extensions))
                 text.AppendLine($"{typeMember.Kind}: {typeMember.Signature} — {Plain(typeMember.Summary)} [{type.Slug}/{typeMember.Slug}]");
             AppendComments(text, type.Slug);
@@ -165,16 +165,16 @@ public sealed class DocsServer
 
         var member = type.Members.Concat(type.Extensions).FirstOrDefault(m => m.Slug == split[1]);
         if (member is null)
-            return "Элемент документации не найден.";
+            return "Documentation item not found.";
 
         var result = new StringBuilder()
             .AppendLine($"{member.Kind}: {member.FullName}")
-            .AppendLine("Сигнатура: " + member.Signature)
+            .AppendLine("Signature: " + member.Signature)
             .AppendLine(Plain(member.Summary))
-            .AppendLine(member.Remarks.Length > 0 ? "Примечания: " + Plain(member.Remarks) : "")
-            .AppendLine(member.Returns.Length > 0 ? "Возвращаемое значение: " + Plain(member.Returns) : "");
+            .AppendLine(member.Remarks.Length > 0 ? "Remarks: " + Plain(member.Remarks) : "")
+            .AppendLine(member.Returns.Length > 0 ? "Returns: " + Plain(member.Returns) : "");
         foreach (var param in member.ParamDocs)
-            result.AppendLine($"Параметр {param.Name}: {Plain(param.Summary)}");
+            result.AppendLine($"Parameter {param.Name}: {Plain(param.Summary)}");
         AppendComments(result, type.Slug + "/" + member.Slug);
         return result.ToString();
     }
@@ -182,26 +182,26 @@ public sealed class DocsServer
     public string GetComments(string slug)
     {
         if (!TryResolveTarget(slug, out var target, out _, out _))
-            return "Элемент документации не найден.";
+            return "Documentation item not found.";
         var comments = _store.ForTarget(target);
         return comments.Count == 0
-            ? "Комментариев пока нет."
+            ? "There are no comments yet."
             : string.Join("\n\n", comments.Select(c => $"{c.Author} ({c.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm}):\n{c.Body}"));
     }
 
     public string AddMcpComment(string slug, string author, string body)
     {
         if (_mcpReadOnly)
-            return "Добавление комментариев отключено: MCP работает в режиме только для чтения.";
+            return "Adding comments is disabled because MCP is in read-only mode.";
         if (!TryResolveTarget(slug, out var target, out var title, out var url))
-            return "Элемент документации не найден.";
+            return "Documentation item not found.";
         if (string.IsNullOrWhiteSpace(body))
-            return "Комментарий не может быть пустым.";
+            return "Comment cannot be empty.";
         if (body.Length > 10000 || author.Length > 200)
-            return "Комментарий превышает допустимый размер.";
+            return "Comment exceeds the maximum allowed length.";
 
         _store.Add(new Comment { Target = target, TargetTitle = title, TargetUrl = url, Author = author.Trim(), Body = body.Trim() });
-        return "Комментарий добавлен к " + title + ".";
+        return "Comment added to " + title + ".";
     }
 
     private bool TryResolveTarget(string slug, out string target, out string title, out string url)
@@ -230,9 +230,10 @@ public sealed class DocsServer
     private void AppendComments(StringBuilder text, string target)
     {
         var comments = _store.ForTarget(target);
-        text.AppendLine("Комментарии:");
         if (comments.Count == 0)
-            text.AppendLine("Пока нет комментариев.");
+            return;
+
+        text.AppendLine("Comments:");
         foreach (var comment in comments)
             text.AppendLine($"- {comment.Author} ({comment.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm}): {comment.Body}");
     }
