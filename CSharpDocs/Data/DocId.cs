@@ -42,10 +42,10 @@ public static class DocId
         {
             switch (raw[i])
             {
-                case '{' or '(':
+                case '{' or '(' or '[':
                     depth++;
                     break;
-                case '}' or ')':
+                case '}' or ')' or ']':
                     depth--;
                     break;
                 case ',' when depth == 0:
@@ -85,8 +85,18 @@ public static class DocId
 
     private static string FriendlyBare(string type)
     {
-        if (type.EndsWith("[]", StringComparison.Ordinal))
-            return FriendlyBare(type[..^2]) + "[]";
+        if (type.EndsWith(']'))
+        {
+            var bracket = type.LastIndexOf('[');
+            if (bracket >= 0)
+            {
+                var rank = type[(bracket + 1)..^1];
+                if (rank.Length == 0)
+                    return FriendlyBare(type[..bracket]) + "[]";
+                if (rank.Split(',').All(dimension => dimension.Length == 0 || dimension == "0:"))
+                    return FriendlyBare(type[..bracket]) + "[" + new string(',', rank.Count(c => c == ',')) + "]";
+            }
+        }
 
         var brace = type.IndexOf('{');
         if (brace >= 0 && type.EndsWith('}'))
@@ -97,9 +107,9 @@ public static class DocId
         }
 
         if (type.StartsWith("``", StringComparison.Ordinal))
-            return "T" + type[2..];
+            return "!!" + type[2..];
         if (type.StartsWith('`'))
-            return type;
+            return "!" + type[1..];
 
         if (Primitives.TryGetValue(type, out var friendly))
             return friendly;
@@ -135,9 +145,6 @@ public static class DocId
     {
         var sb = new StringBuilder();
         sb.Append(ownerName).Append('.').Append(StripArity(rawName));
-        var ticks = CountDoubleTicks(rawName);
-        if (ticks > 0)
-            sb.Append('<').Append(string.Join(", ", Enumerable.Range(1, ticks).Select(i => "T" + i))).Append('>');
         sb.Append('(');
         for (var i = 0; i < parameters.Count; i++)
         {
@@ -149,16 +156,5 @@ public static class DocId
         }
         sb.Append(')');
         return sb.ToString();
-    }
-
-    private static int CountDoubleTicks(string name)
-    {
-        var i = name.IndexOf('`');
-        if (i < 0)
-            return 0;
-        var extra = 0;
-        while (i + extra < name.Length && name[i + extra] == '`')
-            extra++;
-        return extra / 2;
     }
 }

@@ -8,7 +8,14 @@ public static class ModelBuilder
     public static ApiModel Build(Stream xml, Stream dll, string version)
     {
         var docs = XmlDocs.Parse(xml);
-        var metadata = MetadataReaderUtil.Read(dll);
+        using var bufferedDll = dll.CanSeek ? null : new MemoryStream();
+        if (bufferedDll is not null)
+            dll.CopyTo(bufferedDll);
+        var metadataStream = (Stream?)bufferedDll ?? dll;
+
+        if (metadataStream.CanSeek)
+            metadataStream.Position = 0;
+        var metadata = MetadataReaderUtil.Read(metadataStream);
         var metaByName = metadata.Types.ToDictionary(m => m.FullName, StringComparer.Ordinal);
 
         var documentedTypes = DocumentedTypeNames(docs);
@@ -25,7 +32,7 @@ public static class ModelBuilder
         };
 
         AddTypes(model, documentedTypes, metaByName, docs);
-        AddMembers(model, docs, metadata.ExtensionMethods);
+        AddMembers(model, docs, metadata.ExtensionMethods, metadata.MemberSignatures);
 
         foreach (var type in model.Types)
             MergePropertyAccessors(type);
@@ -97,7 +104,8 @@ public static class ModelBuilder
     private static void AddMembers(
         ApiModel model,
         IReadOnlyDictionary<string, DocBody> docs,
-        IReadOnlySet<ExtensionMethodKey> extensionMethods)
+        IReadOnlySet<ExtensionMethodKey> extensionMethods,
+        IReadOnlyDictionary<string, MetaMemberSignature> memberSignatures)
     {
         var typesByName = new Dictionary<string, ApiType>(StringComparer.Ordinal);
         foreach (var type in model.Types)
@@ -116,7 +124,7 @@ public static class ModelBuilder
             if (ownerName is null || !typesByName.TryGetValue(ownerName, out var owner))
                 continue;
 
-            var member = BuildMember(owner, DocId.KindOf(docId), docId, memberKey, docs[docId]);
+            var member = BuildMember(owner, DocId.KindOf(docId), docId, memberKey, docs[docId], memberSignatures);
             if (member is null)
                 continue;
 
@@ -154,7 +162,8 @@ public static class ModelBuilder
             target.Extensions.Add(member);
     }
 
-    private static ApiMember? BuildMember(ApiType owner, string kind, string docId, string memberKey, DocBody body)
+    private static ApiMember? BuildMember(ApiType owner, string kind, string docId, string memberKey, DocBody body,
+        IReadOnlyDictionary<string, MetaMemberSignature> memberSignatures)
     {
         var parsed = kind switch
         {
@@ -167,6 +176,48 @@ public static class ModelBuilder
         if (parsed is null)
             return null;
 
+        var signature = parsed.Signature;
+        var returnType = parsed.ReturnType;
+        var memberName = memberKey.Split('(')[0];
+        var lookupName = memberName;
+        if ((parsed.Kind is MemberKind.Method or MemberKind.Property) && !parsed.IsConstructor &&
+            TryGetMemberSignature(owner, lookupName, MemberParameterTypes(memberKey), memberSignatures, out var memberSignature))
+        {
+            var methodTypeNames = memberSignature.MethodTypeParameters.ToList();
+            var typeNames = memberSignature.DeclaringTypeParameters;
+            for (var i = 0; i < methodTypeNames.Count; i++)
+            {
+                var documented = body.TypeParams.FirstOrDefault(p => p.Name == methodTypeNames[i]);
+                if (!string.IsNullOrWhiteSpace(documented?.Name))
+                    methodTypeNames[i] = documented.Name;
+            }
+            parsed.TypeParams.AddRange(methodTypeNames);
+            returnType = FormatMemberType(memberSignature.ReturnType, methodTypeNames, typeNames);
+            signature = FormatMethodTypeParameters(signature, methodTypeNames);
+            foreach (var parameter in parsed.Params)
+                parameter.Type = FormatMemberType(parameter.Type, methodTypeNames, typeNames);
+        }
+
+        for (var i = 0; body.Params.Count == parsed.Params.Count && i < parsed.Params.Count; i++)
+        {
+            parsed.Params[i].Name = body.Params[i].Name;
+        }
+        if (returnType.Length > 0 && (parsed.Kind is MemberKind.Method or MemberKind.Property))
+            signature = returnType + " " + signature;
+        if ((parsed.Kind is MemberKind.Method or MemberKind.Property) && parsed.Params.Count > 0)
+        {
+            var open = signature.IndexOf('(');
+            var close = signature.LastIndexOf(')');
+            if (open >= 0 && close > open)
+                signature = signature[..(open + 1)]
+                    + string.Join(", ", parsed.Params.Select(p =>
+                    {
+                        var parameterType = p.Type;
+                        return p.Name.Length > 0 ? parameterType + " " + p.Name : parameterType;
+                    }))
+                    + signature[close..];
+        }
+
         return new ApiMember
         {
             Owner = owner,
@@ -175,7 +226,9 @@ public static class ModelBuilder
             IsConstructor = parsed.IsConstructor,
             DocId = docId,
             FullName = owner.FullName + "." + memberKey,
-            Signature = parsed.Signature,
+            Signature = signature,
+            ReturnType = returnType,
+            TypeParams = parsed.TypeParams,
             Params = parsed.Params,
             Slug = Slug.ForMember(parsed.Kind, owner.FullName + "." + memberKey),
             Summary = body.Summary,
@@ -190,11 +243,173 @@ public static class ModelBuilder
         };
     }
 
+    private static IReadOnlyList<string> MemberParameterTypes(string memberKey)
+    {
+        var (_, rawParams, hasParams) = DocId.SplitMethod(memberKey);
+        return hasParams ? DocId.SplitParams(rawParams) : [];
+    }
+
+    private static bool TryGetMemberSignature(ApiType owner, string name, IReadOnlyList<string> parameterTypes,
+        IReadOnlyDictionary<string, MetaMemberSignature> memberSignatures, out MetaMemberSignature memberSignature)
+    {
+        var normalizedTypes = string.Join(",", parameterTypes.Select(NormalizeDocIdTypeForLookup));
+        return memberSignatures.TryGetValue($"{owner.FullName}.{name}({normalizedTypes})", out memberSignature!);
+    }
+
+    private static string FormatMemberType(string type, IReadOnlyList<string> methodTypeNames, IReadOnlyList<string> typeNames)
+    {
+        type = ReplaceGenericMarkers(type, "!!", methodTypeNames);
+        type = ReplaceGenericMarkers(type, "!", typeNames);
+        return FormatDisplayType(type);
+    }
+
+    private static string FormatDisplayType(string type)
+    {
+        if (type.StartsWith("ref ", StringComparison.Ordinal))
+            return "ref " + FormatDisplayType(type[4..]);
+        if (type.EndsWith(']'))
+        {
+            var bracket = type.LastIndexOf('[');
+            if (bracket >= 0 && type[(bracket + 1)..^1].All(c => c == ','))
+                return FormatDisplayType(type[..bracket]) + type[bracket..];
+        }
+        if (type.EndsWith('*'))
+            return FormatDisplayType(type[..^1]) + "*";
+
+        var nested = type.IndexOf('+');
+        var generic = type.IndexOf('<');
+        if (nested >= 0 && (generic < 0 || nested < generic))
+            return FormatDisplayType(type[..nested]) + "." + FormatDisplayType(type[(nested + 1)..]);
+
+        if (generic >= 0)
+        {
+            var depth = 0;
+            var close = -1;
+            for (var i = generic; i < type.Length; i++)
+            {
+                if (type[i] == '<') depth++;
+                else if (type[i] == '>' && --depth == 0)
+                {
+                    close = i;
+                    break;
+                }
+            }
+            if (close >= 0)
+            {
+                var arguments = SplitTypeArguments(type[(generic + 1)..close]);
+                var suffix = type[(close + 1)..];
+                return ShortTypeName(type[..generic]) + "<" + string.Join(", ", arguments.Select(FormatDisplayType)) + ">"
+                    + (suffix.Length > 0 ? "." + FormatDisplayType(suffix.TrimStart('+')) : "");
+            }
+        }
+
+        return ShortTypeName(type);
+    }
+
+    private static string ShortTypeName(string type)
+    {
+        var dot = type.LastIndexOf('.');
+        return dot >= 0 ? type[(dot + 1)..] : type;
+    }
+
+    private static List<string> SplitTypeArguments(string arguments)
+    {
+        var result = new List<string>();
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            if (arguments[i] == '<') depth++;
+            else if (arguments[i] == '>') depth--;
+            else if (arguments[i] == ',' && depth == 0)
+            {
+                result.Add(arguments[start..i].Trim());
+                start = i + 1;
+            }
+        }
+        result.Add(arguments[start..].Trim());
+        return result;
+    }
+
+    private static string ReplaceGenericMarkers(string text, string marker, IReadOnlyList<string> names)
+    {
+        var result = new System.Text.StringBuilder(text.Length);
+        for (var i = 0; i < text.Length;)
+        {
+            if (text.AsSpan(i).StartsWith(marker, StringComparison.Ordinal))
+            {
+                var digitStart = i + marker.Length;
+                var digitEnd = digitStart;
+                while (digitEnd < text.Length && char.IsAsciiDigit(text[digitEnd]))
+                    digitEnd++;
+                if (digitEnd > digitStart && int.TryParse(text.AsSpan(digitStart, digitEnd - digitStart), out var index)
+                    && index < names.Count)
+                {
+                    result.Append(names[index]);
+                    i = digitEnd;
+                }
+                else
+                {
+                    result.Append(text[i++]);
+                }
+            }
+            else
+            {
+                result.Append(text[i++]);
+            }
+        }
+        return result.ToString();
+    }
+
+    private static string FormatMethodTypeParameters(string signature, IReadOnlyList<string> typeParameters)
+    {
+        if (typeParameters.Count == 0)
+            return signature;
+        var open = signature.IndexOf('(');
+        return open < 0
+            ? signature
+            : signature[..open] + "<" + string.Join(", ", typeParameters) + ">" + signature[open..];
+    }
+
+    private static string NormalizeDocIdTypeForLookup(string type)
+    {
+        if (type.EndsWith('@'))
+            return "ref " + NormalizeDocIdTypeForLookup(type[..^1]);
+        if (type.EndsWith(']'))
+        {
+            var bracket = type.LastIndexOf('[');
+            if (bracket >= 0)
+            {
+                var rank = type[(bracket + 1)..^1];
+                if (rank.Length == 0)
+                    return NormalizeDocIdTypeForLookup(type[..bracket]) + "[]";
+                if (rank.Split(',').All(dimension => dimension.Length == 0 || dimension == "0:"))
+                    return NormalizeDocIdTypeForLookup(type[..bracket]) + "[" + new string(',', rank.Count(c => c == ',')) + "]";
+            }
+        }
+        var brace = type.IndexOf('{');
+        if (brace >= 0 && type.EndsWith('}'))
+            return NormalizeDocIdTypeForLookup(type[..brace]) + "<" + string.Join(",", DocId.SplitParams(type[(brace + 1)..^1]).Select(NormalizeDocIdTypeForLookup)) + ">";
+        if (type.StartsWith("``", StringComparison.Ordinal))
+            return "!!" + type[2..];
+        if (type.StartsWith('`'))
+            return "!" + type[1..];
+        if (type.StartsWith("!!", StringComparison.Ordinal))
+            return "!!" + type[2..];
+        if (type.StartsWith('!'))
+            return "!" + type[1..];
+        if (type.StartsWith("System.", StringComparison.Ordinal))
+            return MetadataReaderUtil.NormalizeTypeForLookup(type);
+        return type;
+    }
+
     /// <summary>Разобранный член до заполнения документацией.</summary>
     private sealed record MemberBlueprint(MemberKind Kind, string Name, string Signature)
     {
         public List<ParamInfo> Params { get; init; } = [];
+        public List<string> TypeParams { get; } = [];
         public bool IsConstructor { get; init; }
+        public string ReturnType { get; init; } = "";
     }
 
     private static MemberBlueprint? ParseMethod(ApiType owner, string memberKey)
@@ -226,16 +441,23 @@ public static class ModelBuilder
 
         // Явные реализации интерфейсов (компилятор кодирует точки как «#») —
         // показываем как «Интерфейс.Член».
-        var explicitName = DocId.DisplayName(DocId.StripArity(rawName));
-        return new MemberBlueprint(MemberKind.Method, explicitName,
-            DocId.MethodSignature(owner.Name, explicitName, parameters)) { Params = parameters };
+        var signatureName = DocId.DisplayName(rawName);
+        var displayName = DocId.DisplayName(DocId.StripArity(rawName));
+        return new MemberBlueprint(MemberKind.Method, displayName,
+            DocId.MethodSignature(owner.Name, signatureName, parameters)) { Params = parameters };
     }
 
     private static MemberBlueprint ParseProperty(ApiType owner, string memberKey)
     {
         var paren = memberKey.IndexOf('(');
         var name = paren >= 0 ? memberKey[..paren] : memberKey;
-        return new MemberBlueprint(MemberKind.Property, name, owner.Name + "." + name);
+        var parameters = paren >= 0
+            ? DocId.SplitParams(memberKey[(paren + 1)..^1]).Select(p => new ParamInfo { Type = DocId.FriendlyType(p) }).ToList()
+            : [];
+        var signature = owner.Name + "." + name;
+        if (parameters.Count > 0)
+            signature += "(" + string.Join(", ", parameters.Select(parameter => parameter.Type)) + ")";
+        return new MemberBlueprint(MemberKind.Property, name, signature) { Params = parameters };
     }
 
     /// <summary>Объединяет пару get/set в одно свойство.</summary>

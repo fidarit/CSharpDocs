@@ -74,7 +74,7 @@ public static class Pages
             """;
     }
 
-    public static string MemberPage(ApiType owner, ApiMember member, string author, IReadOnlyList<Comment> comments)
+    public static string MemberPage(ApiType owner, ApiMember member, string author, IReadOnlyList<Comment> comments, ApiModel? model = null)
     {
         var kindBadge = $"""<span class="kindbadge">{Esc(KindLabel(member))}</span>""";
         var crumbs = $"""<div class="crumbs">{Link("/type/" + owner.Slug, owner.Name)} / <span>{Esc(member.Name)}</span></div>""";
@@ -87,7 +87,7 @@ public static class Pages
         return $"""
             {crumbs}
             <h1>{Esc(member.Name)} {kindBadge}</h1>
-            <div class="signature">{Highlight(member.Signature)}</div>
+            <div class="signature">{(model is null ? Highlight(member.Signature) : Highlight(member.Signature, model))}</div>
             {summary}
             {DescriptionList("Параметры", member.ParamDocs.Select(p => (p.Name, p.Summary)))}
             {returns}

@@ -46,7 +46,7 @@ public sealed class DocsServer
             ?? t.Extensions.FirstOrDefault(x => x.Slug == member);
         if (m is null)
             return DocResponse.NotFound;
-        return Render(t.Name + "." + m.Name, Pages.MemberPage(t, m, "", _store.ForTarget(t.Slug + "/" + m.Slug)), fragment);
+        return Render(t.Name + "." + m.Name, Pages.MemberPage(t, m, "", _store.ForTarget(t.Slug + "/" + m.Slug), _model), fragment);
     }
 
     public DocResponse AllComments(bool fragment = false) => Render("Все комментарии", Pages.AllCommentsPage(_store.All()), fragment);

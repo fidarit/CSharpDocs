@@ -1,4 +1,5 @@
 using System.Text;
+using CSharpDocs.Data;
 
 namespace CSharpDocs.Web;
 
@@ -16,7 +17,11 @@ public static class Html
         $"<a href=\"{Esc(href)}\">{Esc(text)}</a>";
 
     /// <summary>Экранирует и подсвечивает C#-сигнатуру.</summary>
-    public static string Highlight(string signature)
+    public static string Highlight(string signature) => HighlightCore(signature, null);
+
+    public static string Highlight(string signature, ApiModel model) => HighlightCore(signature, model);
+
+    private static string HighlightCore(string signature, ApiModel? model)
     {
         var sb = new StringBuilder(signature.Length * 2);
         var i = 0;
@@ -36,10 +41,13 @@ public static class Html
             else if (IsWordStart(c))
             {
                 var j = i + 1;
-                while (j < signature.Length && IsWordPart(signature[j]))
+                while (j < signature.Length && (IsWordPart(signature[j]) || signature[j] == '.'))
                     j++;
                 var word = signature[i..j];
-                if (Keywords.Contains(word))
+                var type = ResolveType(word, model);
+                if (type is not null)
+                    sb.Append(Link("/type/" + type.Slug, word));
+                else if (Keywords.Contains(word))
                     sb.Append("<span class=\"hl-kw\">").Append(word).Append("</span>");
                 else if (char.IsUpper(word[0]))
                     sb.Append("<span class=\"hl-type\">").Append(word).Append("</span>");
@@ -54,6 +62,17 @@ public static class Html
             }
         }
         return sb.ToString();
+    }
+
+    private static ApiType? ResolveType(string name, ApiModel? model)
+    {
+        if (model is null)
+            return null;
+        var fullNameMatches = model.Types.Where(type => type.FullName == name).Take(2).ToArray();
+        if (fullNameMatches.Length == 1)
+            return fullNameMatches[0];
+        var shortNameMatches = model.Types.Where(type => type.Name == name).Take(2).ToArray();
+        return shortNameMatches.Length == 1 ? shortNameMatches[0] : null;
     }
 
     private static bool IsWordStart(char c) => c == '_' || char.IsAsciiLetter(c);

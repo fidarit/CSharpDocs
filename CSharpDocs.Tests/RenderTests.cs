@@ -7,6 +7,24 @@ namespace CSharpDocs.Tests;
 public class RenderTests
 {
     [Fact]
+    public void Highlight_Links_Only_Unique_Short_Type_Names()
+    {
+        var model = new ApiModel();
+        model.Types.Add(new ApiType { Name = "Widget", FullName = "First.Widget", Slug = "first-widget" });
+        model.Types.Add(new ApiType { Name = "Widget", FullName = "Second.Widget", Slug = "second-widget" });
+        model.Types.Add(new ApiType { Name = "Unique", FullName = "Third.Unique", Slug = "third-unique" });
+
+        var ambiguous = Html.Highlight("Widget", model);
+        var unique = Html.Highlight("Unique", model);
+        var fullyQualified = Html.Highlight("First.Widget", model);
+
+        Assert.DoesNotContain("<a ", ambiguous);
+        Assert.Contains("<span class=\"hl-type\">Widget</span>", ambiguous);
+        Assert.Contains("href=\"/type/third-unique\"", unique);
+        Assert.Contains("href=\"/type/first-widget\"", fullyQualified);
+    }
+
+    [Fact]
     public void Type_Page_Has_Expected_Sections()
     {
         var model = TestModel.LoadOrSkip();

@@ -28,12 +28,18 @@ public sealed record MetaType(
 public sealed record MetaAssembly(
     IReadOnlyList<MetaType> Types,
     IReadOnlySet<ExtensionMethodKey> ExtensionMethods,
+    IReadOnlyDictionary<string, MetaMemberSignature> MemberSignatures,
     string Name,
     string Version,
     string TargetFramework);
 
 /// <summary>Идентификатор метода-расширения: тип-контейнер, имя и число параметров.</summary>
 public readonly record struct ExtensionMethodKey(string DeclaringType, string MethodName, int ParameterCount);
+
+public sealed record MetaMemberSignature(
+    string ReturnType,
+    IReadOnlyList<string> MethodTypeParameters,
+    IReadOnlyList<string> DeclaringTypeParameters);
 
 /// <summary>
 /// Читает структуру типов (наследование, вид, доступность) и признак метода-расширения
@@ -43,10 +49,19 @@ public readonly record struct ExtensionMethodKey(string DeclaringType, string Me
 public static class MetadataReaderUtil
 {
     private const string ExtensionAttribute = "System.Runtime.CompilerServices.ExtensionAttribute";
+    private static readonly IReadOnlyDictionary<string, string> PrimitiveTypeNames = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["System.Boolean"] = "bool", ["System.Byte"] = "byte", ["System.SByte"] = "sbyte",
+        ["System.Char"] = "char", ["System.Int16"] = "short", ["System.UInt16"] = "ushort",
+        ["System.Int32"] = "int", ["System.UInt32"] = "uint", ["System.Int64"] = "long",
+        ["System.UInt64"] = "ulong", ["System.Single"] = "float", ["System.Double"] = "double",
+        ["System.Decimal"] = "decimal", ["System.String"] = "string", ["System.Object"] = "object",
+        ["System.IntPtr"] = "nint", ["System.UIntPtr"] = "nuint",
+    };
 
     public static MetaAssembly Read(Stream stream)
     {
-        using var pe = new PEReader(stream);
+        using var pe = new PEReader(stream, PEStreamOptions.LeaveOpen);
         var metadata = pe.GetMetadataReader();
         var enclosing = EnclosingMap(metadata);
         var names = TypeNameMap(metadata, enclosing);
@@ -57,9 +72,170 @@ public static class MetadataReaderUtil
         return new MetaAssembly(
             ReadTypes(metadata, names, namespaces, enclosing),
             ReadExtensionMethods(metadata, names),
+            ReadMemberTypes(metadata, names),
             assemblyName,
             assemblyVersion,
             targetFramework);
+    }
+
+    private static Dictionary<string, MetaMemberSignature> ReadMemberTypes(
+        MetadataReader metadata,
+        Dictionary<TypeDefinitionHandle, string> names)
+    {
+        var result = new Dictionary<string, MetaMemberSignature>(StringComparer.Ordinal);
+        var provider = new SignatureTypeProvider(EnclosingMap(metadata));
+        foreach (var typeHandle in metadata.TypeDefinitions)
+        {
+            var type = metadata.GetTypeDefinition(typeHandle);
+            var owner = names[typeHandle];
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = metadata.GetMethodDefinition(methodHandle);
+                var signature = method.DecodeSignature(provider, null);
+                var rawMethodName = metadata.GetString(method.Name);
+                var parameters = string.Join(",", signature.ParameterTypes.Select(t => NormalizeType(t)));
+                var methodTypeParameters = method.GetGenericParameters()
+                    .Select(handle => metadata.GetString(metadata.GetGenericParameter(handle).Name)).ToArray();
+                var declaringTypeParameters = type.GetGenericParameters()
+                    .Select(handle => metadata.GetString(metadata.GetGenericParameter(handle).Name)).ToArray();
+                var memberName = rawMethodName.Split('`')[0]
+                    + (methodTypeParameters.Length > 0 ? "``" + methodTypeParameters.Length : "");
+                result[$"{owner}.{memberName}({parameters})"] = new MetaMemberSignature(
+                    NormalizeType(signature.ReturnType), methodTypeParameters, declaringTypeParameters);
+            }
+
+            foreach (var propertyHandle in type.GetProperties())
+            {
+                var property = metadata.GetPropertyDefinition(propertyHandle);
+                var signature = property.DecodeSignature(provider, null);
+                var propertyName = metadata.GetString(property.Name);
+                var parameters = string.Join(",", signature.ParameterTypes.Select(t => NormalizeType(t)));
+                result[$"{owner}.{propertyName}({parameters})"] = new MetaMemberSignature(
+                    NormalizeType(signature.ReturnType), [], type.GetGenericParameters()
+                        .Select(handle => metadata.GetString(metadata.GetGenericParameter(handle).Name)).ToArray());
+            }
+        }
+        return result;
+    }
+
+    private static string NormalizeType(string type)
+    {
+        type = type.Replace('/', '.');
+        var result = new System.Text.StringBuilder(type.Length);
+        for (var i = 0; i < type.Length; i++)
+        {
+            if (type[i] == '`')
+            {
+                while (i + 1 < type.Length && char.IsAsciiDigit(type[i + 1]))
+                    i++;
+            }
+            else
+            {
+                result.Append(type[i]);
+            }
+        }
+        return result.ToString();
+    }
+
+    internal static string NormalizeTypeForLookup(string type)
+    {
+        var result = new System.Text.StringBuilder(type.Length);
+        for (var i = 0; i < type.Length;)
+        {
+            if (type[i] == '_' || char.IsAsciiLetter(type[i]))
+            {
+                var end = i + 1;
+                while (end < type.Length && (type[end] == '_' || type[end] == '.' || char.IsAsciiLetterOrDigit(type[end])))
+                    end++;
+                var name = type[i..end];
+                if (PrimitiveTypeNames.TryGetValue(name, out var primitive))
+                    result.Append(primitive);
+                else
+                    result.Append(name);
+                i = end;
+            }
+            else
+            {
+                result.Append(type[i]);
+                i++;
+            }
+        }
+        return result.ToString();
+    }
+
+    private sealed class SignatureTypeProvider(Dictionary<TypeDefinitionHandle, TypeDefinitionHandle> enclosing)
+        : ISignatureTypeProvider<string, object?>
+    {
+        public string GetArrayType(string elementType, ArrayShape shape) =>
+            elementType + "[" + new string(',', Math.Max(0, shape.Rank - 1)) + "]";
+        public string GetByReferenceType(string elementType) => "ref " + elementType;
+        public string GetFunctionPointerType(MethodSignature<string> signature) => "delegate*";
+        public string GetGenericInstantiation(string genericType, System.Collections.Immutable.ImmutableArray<string> typeArguments) =>
+            FormatGenericInstantiation(genericType, typeArguments);
+        public string GetGenericMethodParameter(object? genericContext, int index) => "!!" + index;
+        public string GetGenericTypeParameter(object? genericContext, int index) => "!" + index;
+        public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
+        public string GetPinnedType(string elementType) => elementType;
+        public string GetPointerType(string elementType) => elementType + "*";
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode switch
+        {
+            PrimitiveTypeCode.Void => "void", PrimitiveTypeCode.Boolean => "bool", PrimitiveTypeCode.Char => "char",
+            PrimitiveTypeCode.SByte => "sbyte", PrimitiveTypeCode.Byte => "byte", PrimitiveTypeCode.Int16 => "short",
+            PrimitiveTypeCode.UInt16 => "ushort", PrimitiveTypeCode.Int32 => "int", PrimitiveTypeCode.UInt32 => "uint",
+            PrimitiveTypeCode.Int64 => "long", PrimitiveTypeCode.UInt64 => "ulong", PrimitiveTypeCode.Single => "float",
+            PrimitiveTypeCode.Double => "double", PrimitiveTypeCode.String => "string", PrimitiveTypeCode.Object => "object",
+            PrimitiveTypeCode.IntPtr => "nint", PrimitiveTypeCode.UIntPtr => "nuint", _ => typeCode.ToString(),
+        };
+        public string GetSZArrayType(string elementType) => elementType + "[]";
+        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            var name = reader.GetString(type.Name);
+            return enclosing.TryGetValue(handle, out var parent)
+                ? GetTypeFromDefinition(reader, parent, rawTypeKind) + "+" + name
+                : Qualified(reader, reader.GetString(type.Namespace), name);
+        }
+        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+        {
+            var reference = reader.GetTypeReference(handle);
+            var name = reader.GetString(reference.Name);
+            if (reference.ResolutionScope.Kind == HandleKind.TypeReference)
+                return GetTypeFromReference(reader, (TypeReferenceHandle)reference.ResolutionScope, rawTypeKind) + "+" + name;
+
+            var ns = reader.GetString(reference.Namespace);
+            return ns.Length == 0 ? name : ns + "." + name;
+        }
+        public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind) => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+    }
+
+    private static string FormatGenericInstantiation(string genericType, System.Collections.Immutable.ImmutableArray<string> typeArguments)
+    {
+        genericType = genericType.Replace('/', '.');
+        var result = new System.Text.StringBuilder(genericType.Length + typeArguments.Sum(t => t.Length) + 2);
+        var cumulativeArity = 0;
+        for (var i = 0; i < genericType.Length;)
+        {
+            if (genericType[i] != '`')
+            {
+                result.Append(genericType[i++]);
+                continue;
+            }
+
+            i++;
+            var arity = 0;
+            while (i < genericType.Length && char.IsAsciiDigit(genericType[i]))
+                arity = arity * 10 + genericType[i++] - '0';
+            if (arity < cumulativeArity || arity > typeArguments.Length)
+                continue;
+
+            if (arity > cumulativeArity)
+                result.Append('<').Append(string.Join(", ", typeArguments.Skip(cumulativeArity).Take(arity - cumulativeArity))).Append('>');
+            cumulativeArity = arity;
+        }
+
+        return cumulativeArity == typeArguments.Length
+            ? result.ToString()
+            : NormalizeType(genericType) + "<" + string.Join(", ", typeArguments) + ">";
     }
 
     /// <summary>Читает имя, версию сборки и целевой фреймворк.</summary>

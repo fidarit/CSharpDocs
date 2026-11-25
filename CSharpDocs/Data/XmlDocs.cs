@@ -11,6 +11,7 @@ public sealed class DocBody
     public string Remarks { get; init; } = "";
     public string Returns { get; init; } = "";
     public List<ParamDoc> Params { get; init; } = [];
+    public List<ParamDoc> TypeParams { get; init; } = [];
     public List<ExceptionDoc> Exceptions { get; init; } = [];
 
     /// <summary>Есть тег &lt;inheritdoc&gt;.</summary>
@@ -21,7 +22,7 @@ public sealed class DocBody
 
     /// <summary>Тело без собственных описаний (нужно наследовать).</summary>
     public bool IsEmpty => Summary.Length == 0 && Remarks.Length == 0 && Returns.Length == 0
-        && Params.Count == 0 && Exceptions.Count == 0;
+        && Params.Count == 0 && TypeParams.Count == 0 && Exceptions.Count == 0;
 }
 
 /// <summary>
@@ -64,6 +65,11 @@ public static class XmlDocs
             HasInheritDoc = inherit is not null,
             InheritCref = inherit?.GetAttribute("cref", "") ?? "",
             Params = ReadNamedElements(member, "param", p => new ParamDoc
+            {
+                Name = p.GetAttribute("name", ""),
+                Summary = Render(p),
+            }),
+            TypeParams = ReadNamedElements(member, "typeparam", p => new ParamDoc
             {
                 Name = p.GetAttribute("name", ""),
                 Summary = Render(p),

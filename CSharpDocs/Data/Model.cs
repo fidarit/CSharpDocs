@@ -22,8 +22,8 @@ public enum MemberKind
 /// <summary>Параметр метода.</summary>
 public sealed class ParamInfo
 {
-    public string Name { get; init; } = "";
-    public string Type { get; init; } = "";
+    public string Name { get; set; } = "";
+    public string Type { get; set; } = "";
 }
 
 /// <summary>Документация параметра из &lt;param&gt;.</summary>
@@ -49,6 +49,8 @@ public sealed class ApiMember
     public string DocId { get; init; } = "";
     public string Slug { get; init; } = "";
     public string Signature { get; set; } = "";
+    public string ReturnType { get; set; } = "";
+    public List<string> TypeParams { get; set; } = [];
     public string Summary { get; set; } = "";
     public string Remarks { get; set; } = "";
     public string Returns { get; set; } = "";
