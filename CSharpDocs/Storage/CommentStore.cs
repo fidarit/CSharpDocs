@@ -8,7 +8,6 @@ public sealed class Comment
     public long Id { get; init; }
     public string Target { get; init; } = "";
     public string TargetTitle { get; init; } = "";
-    public string TargetUrl { get; init; } = "";
     public string Author { get; init; } = "";
     public string Body { get; init; } = "";
     public DateTime CreatedAt { get; init; }
@@ -38,25 +37,24 @@ public sealed class CommentStore : IDisposable
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 target       TEXT NOT NULL,
                 target_title TEXT NOT NULL DEFAULT '',
-                target_url   TEXT NOT NULL DEFAULT '',
                 author       TEXT NOT NULL,
                 body         TEXT NOT NULL,
                 created_at   TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target);
             """);
+
     }
 
     public void Add(Comment comment)
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO comments(target, target_title, target_url, author, body, created_at)
-            VALUES ($t, $tt, $tu, $a, $b, $c)
+            INSERT INTO comments(target, target_title, author, body, created_at)
+            VALUES ($t, $tt, $a, $b, $c)
             """;
         cmd.Parameters.AddWithValue("$t", comment.Target);
         cmd.Parameters.AddWithValue("$tt", comment.TargetTitle);
-        cmd.Parameters.AddWithValue("$tu", comment.TargetUrl);
         cmd.Parameters.AddWithValue("$a", comment.Author.Length == 0 ? "Аноним" : comment.Author);
         cmd.Parameters.AddWithValue("$b", comment.Body);
         cmd.Parameters.AddWithValue("$c", DateTime.UtcNow.ToString("O"));
@@ -64,11 +62,11 @@ public sealed class CommentStore : IDisposable
     }
 
     public List<Comment> ForTarget(string target) =>
-        Query("SELECT id,target,target_title,target_url,author,body,created_at FROM comments WHERE target=$t ORDER BY created_at DESC, id DESC",
+        Query("SELECT id,target,target_title,author,body,created_at FROM comments WHERE target=$t ORDER BY created_at DESC, id DESC",
             ("$t", target));
 
     public List<Comment> All() =>
-        Query("SELECT id,target,target_title,target_url,author,body,created_at FROM comments ORDER BY created_at DESC, id DESC");
+        Query("SELECT id,target,target_title,author,body,created_at FROM comments ORDER BY created_at DESC, id DESC");
 
     /// <summary>Число комментариев по каждой цели (target → count).</summary>
     public Dictionary<string, int> Counts()
@@ -99,10 +97,9 @@ public sealed class CommentStore : IDisposable
                 Id = reader.GetInt64(0),
                 Target = reader.GetString(1),
                 TargetTitle = reader.GetString(2),
-                TargetUrl = reader.GetString(3),
-                Author = reader.GetString(4),
-                Body = reader.GetString(5),
-                CreatedAt = DateTime.TryParse(reader.GetString(6), null, System.Globalization.DateTimeStyles.RoundtripKind, out var dt) ? dt : DateTime.UtcNow,
+                Author = reader.GetString(3),
+                Body = reader.GetString(4),
+                CreatedAt = DateTime.TryParse(reader.GetString(5), null, System.Globalization.DateTimeStyles.RoundtripKind, out var dt) ? dt : DateTime.UtcNow,
             });
         }
         return result;

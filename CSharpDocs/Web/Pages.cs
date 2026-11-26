@@ -54,7 +54,7 @@ public static class Pages
         var summary = Wrap("summary", type.Summary);
         var remarks = WrapSection("Примечания", type.Remarks);
         var children = ChildrenSection(type);
-        var commentsHtml = Comments(type.Slug, type.Name, "/type/" + type.Slug, author, comments);
+        var commentsHtml = Comments(type.Slug, author, comments);
 
         return $"""
             {Breadcrumbs(type)}
@@ -81,8 +81,7 @@ public static class Pages
         var summary = Wrap("summary", member.Summary);
         var returns = WrapSection("Возвращаемое значение", member.Returns);
         var remarks = WrapSection("Примечания", member.Remarks);
-        var commentsHtml = Comments(owner.Slug + "/" + member.Slug, owner.Name + "." + member.Name,
-            "/type/" + owner.Slug + "/" + member.Slug, author, comments);
+        var commentsHtml = Comments(owner.Slug + "/" + member.Slug, author, comments);
 
         return $"""
             {crumbs}
@@ -97,11 +96,11 @@ public static class Pages
             """;
     }
 
-    public static string AllCommentsPage(IReadOnlyList<Comment> list)
+    public static string AllCommentsPage(IReadOnlyList<Comment> list, ApiModel model)
     {
         var body = list.Count == 0
             ? "<p>Комментариев пока нет.</p>"
-            : string.Concat(list.Select(CommentBlockWithTarget));
+            : string.Concat(list.Select(comment => CommentBlockWithTarget(comment, model)));
 
         return $"""
             <h1>Все комментарии</h1>
@@ -112,7 +111,7 @@ public static class Pages
 
     // --- Части страниц ---
 
-    private static string Comments(string target, string title, string url, string author, IReadOnlyList<Comment> list)
+    private static string Comments(string target, string author, IReadOnlyList<Comment> list)
     {
         var body = list.Count == 0
             ? """<p class="muted">Пока нет комментариев.</p>"""
@@ -124,8 +123,6 @@ public static class Pages
             {body}
             <form class="comment-form" method="post" action="/comment">
               <input type="hidden" name="target" value="{Esc(target)}">
-              <input type="hidden" name="target_title" value="{Esc(title)}">
-              <input type="hidden" name="target_url" value="{Esc(url)}">
               <input type="text" name="author" placeholder="Ваше имя" value="{Esc(author)}" required>
               <textarea name="body" rows="4" placeholder="Комментарий..." required></textarea>
               <button type="submit">Отправить</button>
@@ -142,10 +139,22 @@ public static class Pages
         """;
 
     /// <summary>Блок комментария со ссылкой на страницу, к которой он оставлен.</summary>
-    private static string CommentBlockWithTarget(Comment comment)
+    private static string CommentBlockWithTarget(Comment comment, ApiModel model)
     {
-        var targetUrl = comment.TargetUrl.Length > 0 ? comment.TargetUrl : "/";
-        var targetTitle = comment.TargetTitle.Length > 0 ? comment.TargetTitle : targetUrl;
+        var target = comment.Target.Split('/', 2);
+        if (!model.BySlug.TryGetValue(target[0], out var type))
+            return CommentBlock(comment);
+
+        var targetUrl = "/type/" + type.Slug;
+        var targetTitle = type.FullName;
+        if (target.Length == 2)
+        {
+            var member = type.Members.Concat(type.Extensions).FirstOrDefault(item => item.Slug == target[1]);
+            if (member is null)
+                return CommentBlock(comment);
+            targetUrl += "/" + member.Slug;
+            targetTitle += "." + member.Name;
+        }
 
         return $"""
             <div class="comment">

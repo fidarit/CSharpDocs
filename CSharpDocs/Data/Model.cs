@@ -47,7 +47,7 @@ public sealed class ApiMember
     public string Name { get; init; } = "";
     public string FullName { get; init; } = "";
     public string DocId { get; init; } = "";
-    public string Slug { get; init; } = "";
+    public string Slug { get; set; } = "";
     public string Signature { get; set; } = "";
     public string ReturnType { get; set; } = "";
     public List<string> TypeParams { get; set; } = [];
@@ -65,18 +65,19 @@ public sealed class ApiMember
     public string ExtendType { get; set; } = "";
     public ApiType Owner { get; set; } = null!;
 
-    /// <summary>Подпись без имени владельца (для таблиц).</summary>
+    /// <summary>Короткая подпись члена для таблицы типа.</summary>
     public string Display()
     {
-        if (Kind == MemberKind.Property)
+        if (Kind != MemberKind.Method)
             return Name;
 
-        // Убираем префикс «Владелец.» только если он действительно есть.
-        // У конструкторов префикса нет, а в типах параметров точки допустимы.
-        var prefix = Owner.Name + ".";
-        return Signature.StartsWith(prefix, StringComparison.Ordinal)
-            ? Signature[prefix.Length..]
-            : Signature;
+        var open = Signature.IndexOf('(');
+        var close = Signature.LastIndexOf(')');
+        var parameters = Params.Count > 0
+            ? string.Join(", ", Params.Select(parameter => parameter.Type))
+            : open >= 0 && close > open ? Signature[(open + 1)..close] : "";
+        var typeParameters = TypeParams.Count > 0 ? "<" + string.Join(", ", TypeParams) + ">" : "";
+        return Name + typeParameters + "(" + parameters + ")";
     }
 }
 

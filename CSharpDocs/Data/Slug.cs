@@ -8,8 +8,16 @@ public static class Slug
 {
     public static string ForType(string fullName) => Sanitize(fullName);
 
-    public static string ForMember(MemberKind kind, string fullName) =>
-        Sanitize(fullName) + "-" + Hash8(kind.ToString() + ":" + fullName);
+    public static string ForMember(string name) => Sanitize(name);
+
+    public static string ForMember(string name, int genericParameterCount = 0) =>
+        ForMember(name) + (genericParameterCount > 0 ? "-g" + genericParameterCount : "");
+
+    public static string ForMember(string name, IEnumerable<string> parameterTypes) =>
+        ForMember(name) + string.Concat(parameterTypes.Select(type => "-" + Sanitize(DocId.FriendlyType(type))));
+
+    public static string ForConflictingMember(string slug, MemberKind kind, string identity) =>
+        slug + "-" + Hash8(kind.ToString() + ":" + identity);
 
     private static string Sanitize(string value)
     {

@@ -37,6 +37,8 @@ public static class ModelBuilder
         foreach (var type in model.Types)
             MergePropertyAccessors(type);
 
+        AssignMemberSlugs(model);
+
         LinkHierarchy(model);
         InheritDoc.Resolve(model, docs);
         docs.Clear();
@@ -135,6 +137,52 @@ public static class ModelBuilder
         }
     }
 
+    private static void AssignMemberSlugs(ApiModel model)
+    {
+        var members = model.Types.SelectMany(type => type.Members.Concat(type.Extensions)).Distinct().ToList();
+        var routeNames = members.ToDictionary(member => member, MemberRouteName);
+        var ambiguous = new HashSet<ApiMember>();
+
+        foreach (var type in model.Types)
+        {
+            foreach (var group in type.Members.Concat(type.Extensions).Distinct()
+                         .GroupBy(member => routeNames[member], StringComparer.Ordinal))
+            {
+                var collisions = group.ToArray();
+                if (collisions.Length < 2)
+                    continue;
+
+                foreach (var member in collisions)
+                {
+                    if (member.Kind == MemberKind.Method && !member.IsConstructor)
+                        routeNames[member] = Slug.ForMember(routeNames[member], member.Params.Select(parameter => parameter.Type));
+                    else
+                        ambiguous.Add(member);
+                }
+            }
+        }
+
+        foreach (var type in model.Types)
+        {
+            foreach (var group in type.Members.Concat(type.Extensions).Distinct()
+                         .GroupBy(member => routeNames[member], StringComparer.Ordinal))
+            {
+                foreach (var member in group.Skip(1))
+                    ambiguous.Add(member);
+            }
+        }
+
+        foreach (var member in members)
+            member.Slug = ambiguous.Contains(member)
+                ? Slug.ForConflictingMember(routeNames[member], member.Kind, member.FullName)
+                : routeNames[member];
+    }
+
+    private static string MemberRouteName(ApiMember member) =>
+        member.IsConstructor
+            ? Slug.ForMember("ctor")
+            : Slug.ForMember(member.Name, member.Kind == MemberKind.Method ? member.TypeParams.Count : 0);
+
     /// <summary>Метод-расширение — если у первого параметра есть модификатор this.</summary>
     private static bool IsExtension(
         IReadOnlySet<ExtensionMethodKey> extensionMethods,
@@ -230,7 +278,6 @@ public static class ModelBuilder
             ReturnType = returnType,
             TypeParams = parsed.TypeParams,
             Params = parsed.Params,
-            Slug = Slug.ForMember(parsed.Kind, owner.FullName + "." + memberKey),
             Summary = body.Summary,
             Remarks = body.Remarks,
             Returns = body.Returns,

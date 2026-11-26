@@ -14,6 +14,10 @@ public class ModelTests
               <member name="M:CSharpDocs.Tests.SignatureFixture.Transform(CSharpDocs.Tests.SignatureWidget,System.Int32)">
                 <summary /><param name="count">Count.</param>
               </member>
+              <member name="M:CSharpDocs.Tests.SignatureFixture.Run``1(System.Int32)"><summary /></member>
+              <member name="M:CSharpDocs.Tests.SignatureFixture.Run``1(System.String)"><summary /></member>
+              <member name="M:CSharpDocs.Tests.SignatureFixture.Run(System.Int32)"><summary /></member>
+              <member name="M:CSharpDocs.Tests.SignatureFixture.Run(System.String)"><summary /></member>
               <member name="M:CSharpDocs.Tests.SignatureFixture.Echo``1(``0)">
                 <summary /><param name="value">Value.</param>
               </member>
@@ -35,10 +39,16 @@ public class ModelTests
 
         Assert.Contains("SignatureWidget SignatureFixture.Transform(", member.Signature);
         Assert.DoesNotContain("count", member.Signature);
+        Assert.Equal("transform", member.Slug);
+
+        var runMethods = model.ByShort[nameof(SignatureFixture)].Members.Where(m => m.Name == "Run").ToArray();
+        Assert.Equal(["run-g1-int", "run-g1-string", "run-int", "run-string"],
+            runMethods.Select(method => method.Slug).Order().ToArray());
 
         var generic = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "Echo");
         Assert.Equal("TResult", generic.ReturnType);
         Assert.Equal("TResult SignatureFixture.Echo<TResult>(TResult value)", generic.Signature);
+        Assert.Equal("echo-g1", generic.Slug);
 
         var items = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "GetItems");
         Assert.Equal("List<int>", items.ReturnType);
@@ -56,6 +66,24 @@ public class ModelTests
 
         var indexer = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "Item");
         Assert.Contains("int index", indexer.Signature);
+    }
+
+    [Fact]
+    public void Enum_Member_Uses_Short_Slug()
+    {
+        var xml = """
+            <doc><members>
+              <member name="T:CSharpDocs.Tests.SlugFixtureState"><summary /></member>
+              <member name="F:CSharpDocs.Tests.SlugFixtureState.KSVsByLayer"><summary /></member>
+            </members></doc>
+            """;
+        using var xmlStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(xml));
+        using var dllStream = File.OpenRead(typeof(SlugFixtureState).Assembly.Location);
+        var model = ModelBuilder.Build(xmlStream, dllStream, "test");
+        var type = Assert.Single(model.Types);
+        var member = Assert.Single(type.Members);
+
+        Assert.Equal("ksvsbylayer", member.Slug);
     }
 
     [Fact]
@@ -103,6 +131,10 @@ public class ModelTests
 public sealed class SignatureFixture
 {
     public SignatureWidget Transform(SignatureWidget input, int count) => input;
+    public void Run(int value) { }
+    public void Run(string value) { }
+    public void Run<T>(int value) { }
+    public void Run<T>(string value) { }
     public TResult Echo<TResult>(TResult value) => value;
     public List<int> GetItems() => [];
     public Dictionary<int, string>.KeyCollection GetKeys() => null!;
@@ -112,3 +144,8 @@ public sealed class SignatureFixture
 }
 
 public sealed class SignatureWidget { }
+
+public enum SlugFixtureState
+{
+    KSVsByLayer,
+}

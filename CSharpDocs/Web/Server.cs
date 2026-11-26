@@ -49,7 +49,7 @@ public sealed class DocsServer
         return Render(t.Name + "." + m.Name, Pages.MemberPage(t, m, "", _store.ForTarget(t.Slug + "/" + m.Slug), _model), fragment);
     }
 
-    public DocResponse AllComments(bool fragment = false) => Render("Все комментарии", Pages.AllCommentsPage(_store.All()), fragment);
+    public DocResponse AllComments(bool fragment = false) => Render("Все комментарии", Pages.AllCommentsPage(_store.All(), _model), fragment);
 
     /// <summary>JSON со всей структурой дерева типов для клиента (gzip при поддержке).</summary>
     public DocResponse ApiTree(bool acceptGzip = false) => acceptGzip
@@ -181,7 +181,7 @@ public sealed class DocsServer
 
     public string GetComments(string slug)
     {
-        if (!TryResolveTarget(slug, out var target, out _, out _))
+        if (!TryResolveTarget(slug, out var target, out _))
             return "Documentation item not found.";
         var comments = _store.ForTarget(target);
         return comments.Count == 0
@@ -193,20 +193,20 @@ public sealed class DocsServer
     {
         if (_mcpReadOnly)
             return "Adding comments is disabled because MCP is in read-only mode.";
-        if (!TryResolveTarget(slug, out var target, out var title, out var url))
+        if (!TryResolveTarget(slug, out var target, out var title))
             return "Documentation item not found.";
         if (string.IsNullOrWhiteSpace(body))
             return "Comment cannot be empty.";
         if (body.Length > 10000 || author.Length > 200)
             return "Comment exceeds the maximum allowed length.";
 
-        _store.Add(new Comment { Target = target, TargetTitle = title, TargetUrl = url, Author = author.Trim(), Body = body.Trim() });
+        _store.Add(new Comment { Target = target, TargetTitle = title, Author = author.Trim(), Body = body.Trim() });
         return "Comment added to " + title + ".";
     }
 
-    private bool TryResolveTarget(string slug, out string target, out string title, out string url)
+    private bool TryResolveTarget(string slug, out string target, out string title)
     {
-        target = title = url = "";
+        target = title = "";
         var split = slug.Split('/', 2);
         if (!_model.BySlug.TryGetValue(split[0], out var type))
             return false;
@@ -214,7 +214,6 @@ public sealed class DocsServer
         {
             target = type.Slug;
             title = type.FullName;
-            url = "/type/" + type.Slug;
             return true;
         }
 
@@ -223,7 +222,6 @@ public sealed class DocsServer
             return false;
         target = type.Slug + "/" + member.Slug;
         title = type.FullName + "." + member.Name;
-        url = "/type/" + type.Slug + "/" + member.Slug;
         return true;
     }
 
@@ -267,15 +265,17 @@ public sealed class DocsServer
 
     public DocResponse AddComment(CommentForm form)
     {
+        if (!TryResolveTarget(form.Target, out var target, out var title))
+            return DocResponse.NotFound;
+
         _store.Add(new Comment
         {
-            Target = form.Target,
-            TargetTitle = form.TargetTitle,
-            TargetUrl = form.TargetUrl,
+            Target = target,
+            TargetTitle = title,
             Author = form.Author,
             Body = form.Body,
         });
-        return DocResponse.Redirect(form.TargetUrl.Length == 0 ? "/" : form.TargetUrl + "#comments");
+        return DocResponse.Redirect("/type/" + target + "#comments");
     }
 
     public DocResponse Static(string file)
@@ -324,8 +324,6 @@ public sealed class DocsServer
             var form = await request.ReadFormAsync();
             return ToResult(AddComment(new CommentForm(
                 form["target"].ToString(),
-                form["target_title"].ToString(),
-                form["target_url"].ToString(),
                 form["author"].ToString(),
                 form["body"].ToString())));
         });

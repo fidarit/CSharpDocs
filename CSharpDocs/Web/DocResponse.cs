@@ -18,4 +18,4 @@ public sealed record DocResponse(int Status, string ContentType, byte[] Body)
 }
 
 /// <summary>Данные формы добавления комментария.</summary>
-public sealed record CommentForm(string Target, string TargetTitle, string TargetUrl, string Author, string Body);
+public sealed record CommentForm(string Target, string Author, string Body);

@@ -63,6 +63,36 @@ public class ServerTests
     }
 
     [Fact]
+    public void Member_Page_Uses_Short_Slug()
+    {
+        var type = new ApiType { Name = "State", FullName = "Example.State", Slug = "example-state", Kind = TypeKind.Enum };
+        var member = new ApiMember
+        {
+            Owner = type,
+            Kind = MemberKind.Field,
+            Name = "Ready",
+            FullName = "Example.State.Ready",
+            Slug = "ready",
+            Signature = "State.Ready",
+        };
+        type.Members.Add(member);
+        var model = new ApiModel();
+        model.Types.Add(type);
+        model.BySlug[type.Slug] = type;
+        var db = Path.Combine(Path.GetTempPath(), $"docs-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var store = new CommentStore(db);
+            var server = new DocsServer(model, store, []);
+            var shortPage = server.MemberPage(type.Slug, "ready");
+            Assert.Equal(200, shortPage.Status);
+            Assert.DoesNotContain("target_url", Body(shortPage));
+            Assert.Contains("name=\"target\"", Body(shortPage));
+        }
+        finally { File.Delete(db); }
+    }
+
+    [Fact]
     public void Search_And_Tree()
     {
         var (server, model, db) = Create();
@@ -105,8 +135,9 @@ public class ServerTests
         try
         {
             var type = model.Types[0];
-            var redirect = server.AddComment(new CommentForm(type.Slug, type.Name, "/type/" + type.Slug, "Иван", "Проверка"));
+            var redirect = server.AddComment(new CommentForm(type.Slug, "Иван", "Проверка"));
             Assert.Equal(303, redirect.Status);
+            Assert.Equal("/type/" + type.Slug + "#comments", Body(redirect));
             Assert.Contains("Проверка", Body(server.TypePage(type.Slug)));
             Assert.Contains("Иван", Body(server.AllComments()));
         }
