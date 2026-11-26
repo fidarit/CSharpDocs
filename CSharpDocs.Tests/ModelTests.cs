@@ -46,19 +46,16 @@ public class ModelTests
             runMethods.Select(method => method.Slug).Order().ToArray());
 
         var generic = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "Echo");
-        Assert.Equal("TResult", generic.ReturnType);
         Assert.Equal("TResult SignatureFixture.Echo<TResult>(TResult value)", generic.Signature);
         Assert.Equal("echo-g1", generic.Slug);
 
         var items = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "GetItems");
-        Assert.Equal("List<int>", items.ReturnType);
         Assert.StartsWith("List<int>", items.Signature);
 
         var keys = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "GetKeys");
-        Assert.Equal("Dictionary<int, string>.KeyCollection", keys.ReturnType);
+        Assert.StartsWith("Dictionary<int, string>.KeyCollection", keys.Signature);
 
         var matrix = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "GetMatrix");
-        Assert.Equal("int[,]", matrix.ReturnType);
         Assert.Contains("int[,]", matrix.Signature);
 
         var matrixSum = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "SumMatrix");
@@ -66,6 +63,16 @@ public class ModelTests
 
         var indexer = Assert.Single(model.ByShort[nameof(SignatureFixture)].Members, m => m.Name == "Item");
         Assert.Contains("int index", indexer.Signature);
+    }
+
+    [Fact]
+    public void MetadataReader_OnlyKeepsSignaturesForDocumentedTypes()
+    {
+        using var dllStream = File.OpenRead(typeof(SignatureFixture).Assembly.Location);
+        var metadata = MetadataReaderUtil.Read(dllStream, new HashSet<string>(["CSharpDocs.Tests.SignatureFixture"], StringComparer.Ordinal));
+
+        Assert.Contains(metadata.MemberSignatures.Keys, key => key.StartsWith("CSharpDocs.Tests.SignatureFixture.", StringComparison.Ordinal));
+        Assert.DoesNotContain(metadata.MemberSignatures.Keys, key => key.StartsWith("CSharpDocs.Tests.SignatureWidget.", StringComparison.Ordinal));
     }
 
     [Fact]

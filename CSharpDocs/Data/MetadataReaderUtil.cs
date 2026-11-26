@@ -59,7 +59,7 @@ public static class MetadataReaderUtil
         ["System.IntPtr"] = "nint", ["System.UIntPtr"] = "nuint",
     };
 
-    public static MetaAssembly Read(Stream stream)
+    public static MetaAssembly Read(Stream stream, IReadOnlySet<string>? documentedTypes = null)
     {
         using var pe = new PEReader(stream, PEStreamOptions.LeaveOpen);
         var metadata = pe.GetMetadataReader();
@@ -72,7 +72,7 @@ public static class MetadataReaderUtil
         return new MetaAssembly(
             ReadTypes(metadata, names, namespaces, enclosing),
             ReadExtensionMethods(metadata, names),
-            ReadMemberTypes(metadata, names),
+            ReadMemberTypes(metadata, names, documentedTypes),
             assemblyName,
             assemblyVersion,
             targetFramework);
@@ -80,7 +80,8 @@ public static class MetadataReaderUtil
 
     private static Dictionary<string, MetaMemberSignature> ReadMemberTypes(
         MetadataReader metadata,
-        Dictionary<TypeDefinitionHandle, string> names)
+        Dictionary<TypeDefinitionHandle, string> names,
+        IReadOnlySet<string>? documentedTypes)
     {
         var result = new Dictionary<string, MetaMemberSignature>(StringComparer.Ordinal);
         var provider = new SignatureTypeProvider(EnclosingMap(metadata));
@@ -88,6 +89,9 @@ public static class MetadataReaderUtil
         {
             var type = metadata.GetTypeDefinition(typeHandle);
             var owner = names[typeHandle];
+            if (documentedTypes is not null && !documentedTypes.Contains(owner))
+                continue;
+
             foreach (var methodHandle in type.GetMethods())
             {
                 var method = metadata.GetMethodDefinition(methodHandle);

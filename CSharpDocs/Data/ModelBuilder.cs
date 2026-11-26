@@ -8,6 +8,7 @@ public static class ModelBuilder
     public static ApiModel Build(Stream xml, Stream dll, string version)
     {
         var docs = XmlDocs.Parse(xml);
+        var documentedTypes = DocumentedTypeNames(docs);
         using var bufferedDll = dll.CanSeek ? null : new MemoryStream();
         if (bufferedDll is not null)
             dll.CopyTo(bufferedDll);
@@ -15,10 +16,8 @@ public static class ModelBuilder
 
         if (metadataStream.CanSeek)
             metadataStream.Position = 0;
-        var metadata = MetadataReaderUtil.Read(metadataStream);
+        var metadata = MetadataReaderUtil.Read(metadataStream, documentedTypes);
         var metaByName = metadata.Types.ToDictionary(m => m.FullName, StringComparer.Ordinal);
-
-        var documentedTypes = DocumentedTypeNames(docs);
 
         var model = new ApiModel
         {
@@ -275,7 +274,6 @@ public static class ModelBuilder
             DocId = docId,
             FullName = owner.FullName + "." + memberKey,
             Signature = signature,
-            ReturnType = returnType,
             TypeParams = parsed.TypeParams,
             Params = parsed.Params,
             Summary = body.Summary,

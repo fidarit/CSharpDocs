@@ -49,7 +49,6 @@ public sealed class ApiMember
     public string DocId { get; init; } = "";
     public string Slug { get; set; } = "";
     public string Signature { get; set; } = "";
-    public string ReturnType { get; set; } = "";
     public List<string> TypeParams { get; set; } = [];
     public string Summary { get; set; } = "";
     public string Remarks { get; set; } = "";
