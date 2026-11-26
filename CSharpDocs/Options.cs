@@ -11,6 +11,7 @@ public sealed class Options
     public string Title { get; init; } = "API Docs";
     public bool McpEnabled { get; init; }
     public bool McpReadOnly { get; init; }
+    public string CommentAdminKey { get; init; } = "";
     public byte[] Xml { get; private set; } = [];
     public byte[] Dll { get; private set; } = [];
 
@@ -75,6 +76,7 @@ public sealed class Options
             Title = title,
             McpEnabled = mcpEnabled,
             McpReadOnly = mcpReadOnly,
+            CommentAdminKey = Environment.GetEnvironmentVariable("COMMENTS_ADMIN_KEY") ?? "",
             Xml = xmlData,
             Dll = dllData,
             PackageId = packageMeta.Id,

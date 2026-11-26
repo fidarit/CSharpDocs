@@ -15,16 +15,18 @@ public sealed class DocsServer
     private readonly CommentStore _store;
     private readonly Dictionary<string, byte[]> _staticFiles;
     private readonly bool _mcpReadOnly;
+    private readonly string _commentAdminKey;
 
     // Дерево неизменно на весь запуск — храним сжатую копию.
     private readonly byte[] _treeGzip;
 
-    public DocsServer(ApiModel model, CommentStore store, Dictionary<string, byte[]> staticFiles, bool mcpReadOnly = false)
+    public DocsServer(ApiModel model, CommentStore store, Dictionary<string, byte[]> staticFiles, bool mcpReadOnly = false, string commentAdminKey = "")
     {
         _model = model;
         _store = store;
         _staticFiles = staticFiles;
         _mcpReadOnly = mcpReadOnly;
+        _commentAdminKey = commentAdminKey;
 
         _treeGzip = BuildCompressedTree(model);
     }
@@ -35,7 +37,7 @@ public sealed class DocsServer
     {
         if (!_model.BySlug.TryGetValue(slug, out var t))
             return DocResponse.NotFound;
-        return Render(t.Name, Pages.TypePage(t, "", _store.ForTarget(t.Slug)), fragment);
+        return Render(t.Name, Pages.TypePage(t, "", _store.ForTarget(t.Slug), !_commentAdminKey.Equals("", StringComparison.Ordinal)), fragment);
     }
 
     public DocResponse MemberPage(string slug, string member, bool fragment = false)
@@ -46,10 +48,10 @@ public sealed class DocsServer
             ?? t.Extensions.FirstOrDefault(x => x.Slug == member);
         if (m is null)
             return DocResponse.NotFound;
-        return Render(t.Name + "." + m.Name, Pages.MemberPage(t, m, "", _store.ForTarget(t.Slug + "/" + m.Slug), _model), fragment);
+        return Render(t.Name + "." + m.Name, Pages.MemberPage(t, m, "", _store.ForTarget(t.Slug + "/" + m.Slug), _model, !_commentAdminKey.Equals("", StringComparison.Ordinal)), fragment);
     }
 
-    public DocResponse AllComments(bool fragment = false) => Render("Все комментарии", Pages.AllCommentsPage(_store.All(), _model), fragment);
+    public DocResponse AllComments(bool fragment = false) => Render("Все комментарии", Pages.AllCommentsPage(_store.All(), _model, !_commentAdminKey.Equals("", StringComparison.Ordinal)), fragment);
 
     /// <summary>JSON со всей структурой дерева типов для клиента (gzip при поддержке).</summary>
     public DocResponse ApiTree(bool acceptGzip = false) => acceptGzip
@@ -278,6 +280,38 @@ public sealed class DocsServer
         return DocResponse.Redirect("/type/" + target + "#comments");
     }
 
+    public DocResponse EditComment(long id, string expectedBody, string body, string key, string returnUrl = "") =>
+        ChangeComment(id, expectedBody, body, key, returnUrl, delete: false);
+
+    public DocResponse DeleteComment(long id, string expectedBody, string key, string returnUrl = "") =>
+        ChangeComment(id, expectedBody, "", key, returnUrl, delete: true);
+
+    private DocResponse ChangeComment(long id, string expectedBody, string body, string key, string returnUrl, bool delete)
+    {
+        if (_commentAdminKey.Length == 0 || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(_commentAdminKey), Encoding.UTF8.GetBytes(key)))
+            return new DocResponse(403, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Изменение комментариев запрещено."));
+        if (!delete && string.IsNullOrWhiteSpace(body))
+            return new DocResponse(400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Комментарий не может быть пустым."));
+        if (body.Length > 10000)
+            return new DocResponse(400, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Комментарий слишком длинный."));
+        var target = _store.TargetFor(id);
+        if (target is null)
+            return new DocResponse(404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Комментарий не найден."));
+        var changed = delete ? _store.Delete(id, expectedBody) : _store.Update(id, expectedBody, body);
+        if (!changed)
+            return new DocResponse(409, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Комментарий уже изменён или удалён. Обновите страницу."));
+        var destination = IsLocalReturnUrl(returnUrl) ? returnUrl : "/type/" + target + "#comments";
+        return DocResponse.Redirect(destination);
+    }
+
+    private static bool IsLocalReturnUrl(string url) =>
+        url.StartsWith("/", StringComparison.Ordinal) &&
+        !url.StartsWith("//", StringComparison.Ordinal) &&
+        !url.Contains('\\') &&
+        !url.Contains('\r') &&
+        !url.Contains('\n');
+
     public DocResponse Static(string file)
     {
         if (file.Contains("..", StringComparison.Ordinal) || file.Contains('/'))
@@ -326,6 +360,16 @@ public sealed class DocsServer
                 form["target"].ToString(),
                 form["author"].ToString(),
                 form["body"].ToString())));
+        });
+        app.MapPost("/comment/{id:long}/edit", async (HttpRequest request, long id) =>
+        {
+            var form = await request.ReadFormAsync();
+            return ToResult(EditComment(id, form["expected"].ToString(), form["body"].ToString(), form["key"].ToString(), form["returnUrl"].ToString()));
+        });
+        app.MapPost("/comment/{id:long}/delete", async (HttpRequest request, long id) =>
+        {
+            var form = await request.ReadFormAsync();
+            return ToResult(DeleteComment(id, form["expected"].ToString(), form["key"].ToString(), form["returnUrl"].ToString()));
         });
     }
 

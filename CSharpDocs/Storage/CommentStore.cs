@@ -61,6 +61,33 @@ public sealed class CommentStore : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    public bool Update(long id, string expectedBody, string body)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "UPDATE comments SET body=$body WHERE id=$id AND body=$expected";
+        cmd.Parameters.AddWithValue("$body", body);
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$expected", expectedBody);
+        return cmd.ExecuteNonQuery() == 1;
+    }
+
+    public string? TargetFor(long id)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT target FROM comments WHERE id=$id";
+        cmd.Parameters.AddWithValue("$id", id);
+        return cmd.ExecuteScalar() as string;
+    }
+
+    public bool Delete(long id, string expectedBody)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM comments WHERE id=$id AND body=$expected";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$expected", expectedBody);
+        return cmd.ExecuteNonQuery() == 1;
+    }
+
     public List<Comment> ForTarget(string target) =>
         Query("SELECT id,target,target_title,author,body,created_at FROM comments WHERE target=$t ORDER BY created_at DESC, id DESC",
             ("$t", target));

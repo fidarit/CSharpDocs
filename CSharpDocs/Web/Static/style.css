@@ -90,6 +90,24 @@ table.members td.desc { color: var(--muted); }
 .comment-form { display: grid; gap: 8px; margin-top: 10px; max-width: 720px; }
 .comment-form input, .comment-form textarea { width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel2); color: var(--fg); font: inherit; resize: vertical; }
 .comment-form button { justify-self: start; padding: 8px 18px; border-radius: 8px; border: none; background: var(--accent); color: var(--accent-fg); font: inherit; cursor: pointer; }
+.comment-manage { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; opacity: .22; transition: opacity .15s; }
+.comment:hover .comment-manage, .comment:focus-within .comment-manage { opacity: .8; }
+.comment-manage button { padding: 2px 6px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; }
+.comment-manage .comment-delete { color: #b33; }
+.comment-key-dialog { width: min(420px, calc(100vw - 32px)); padding: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--fg); box-shadow: 0 16px 48px #0005; }
+.comment-key-dialog::backdrop { background: #0008; }
+.comment-key-dialog h2 { margin: 0 0 16px; }
+.comment-key-dialog label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
+.comment-key-dialog input { padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel2); color: var(--fg); font: inherit; }
+.comment-key-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.comment-key-actions button { padding: 7px 13px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel2); color: var(--fg); cursor: pointer; }
+.comment-edit-dialog { width: min(680px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--fg); box-shadow: 0 20px 60px #0006; }
+.comment-edit-dialog::backdrop { background: #0008; backdrop-filter: blur(2px); }
+.comment-edit-dialog h2 { margin: 0 0 14px; }
+.comment-edit-dialog textarea { display: block; box-sizing: border-box; width: 100%; min-height: 180px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); color: var(--fg); font: inherit; line-height: 1.5; resize: vertical; }
+.comment-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.comment-edit-actions button { padding: 8px 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel2); color: var(--fg); font: inherit; cursor: pointer; }
+.comment-edit-actions button[type="submit"] { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
 .results { list-style: none; margin: 0; padding: 0; }
 .results li { padding: 8px 6px; border-bottom: 1px solid var(--border); }
 .results .rname { font-family: ui-monospace, Consolas, monospace; }

@@ -45,7 +45,7 @@ public static class Pages
         _ => $"{bytes} Б",
     };
 
-    public static string TypePage(ApiType type, string author, IReadOnlyList<Comment> comments)
+    public static string TypePage(ApiType type, string author, IReadOnlyList<Comment> comments, bool canManage = false)
     {
         var kindBadge = $"""<span class="kindbadge">{Esc(type.KindLabel)}</span>""";
         var inheritance = type.Parent is null
@@ -54,7 +54,7 @@ public static class Pages
         var summary = Wrap("summary", type.Summary);
         var remarks = WrapSection("Примечания", type.Remarks);
         var children = ChildrenSection(type);
-        var commentsHtml = Comments(type.Slug, author, comments);
+        var commentsHtml = Comments(type.Slug, author, comments, canManage);
 
         return $"""
             {Breadcrumbs(type)}
@@ -74,14 +74,14 @@ public static class Pages
             """;
     }
 
-    public static string MemberPage(ApiType owner, ApiMember member, string author, IReadOnlyList<Comment> comments, ApiModel? model = null)
+    public static string MemberPage(ApiType owner, ApiMember member, string author, IReadOnlyList<Comment> comments, ApiModel? model = null, bool canManage = false)
     {
         var kindBadge = $"""<span class="kindbadge">{Esc(KindLabel(member))}</span>""";
         var crumbs = $"""<div class="crumbs">{Link("/type/" + owner.Slug, owner.Name)} / <span>{Esc(member.Name)}</span></div>""";
         var summary = Wrap("summary", member.Summary);
         var returns = WrapSection("Возвращаемое значение", member.Returns);
         var remarks = WrapSection("Примечания", member.Remarks);
-        var commentsHtml = Comments(owner.Slug + "/" + member.Slug, author, comments);
+        var commentsHtml = Comments(owner.Slug + "/" + member.Slug, author, comments, canManage);
 
         return $"""
             {crumbs}
@@ -96,11 +96,11 @@ public static class Pages
             """;
     }
 
-    public static string AllCommentsPage(IReadOnlyList<Comment> list, ApiModel model)
+    public static string AllCommentsPage(IReadOnlyList<Comment> list, ApiModel model, bool canManage = false)
     {
         var body = list.Count == 0
             ? "<p>Комментариев пока нет.</p>"
-            : string.Concat(list.Select(comment => CommentBlockWithTarget(comment, model)));
+            : string.Concat(list.Select(comment => CommentBlockWithTarget(comment, model, canManage)));
 
         return $"""
             <h1>Все комментарии</h1>
@@ -111,11 +111,11 @@ public static class Pages
 
     // --- Части страниц ---
 
-    private static string Comments(string target, string author, IReadOnlyList<Comment> list)
+    private static string Comments(string target, string author, IReadOnlyList<Comment> list, bool canManage = false)
     {
         var body = list.Count == 0
             ? """<p class="muted">Пока нет комментариев.</p>"""
-            : string.Concat(list.Select(CommentBlock));
+            : string.Concat(list.Select(comment => CommentBlock(comment, canManage)));
 
         return $"""
             <div class="comments" id="comments">
@@ -131,19 +131,32 @@ public static class Pages
             """;
     }
 
-    private static string CommentBlock(Comment comment) => $"""
+    private static string CommentBlock(Comment comment, bool canManage = false) => $"""
         <div class="comment">
           <div class="meta">{Esc(comment.Author)} · {Esc(comment.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))}</div>
           <div class="body md">{Markdown.ToHtml(comment.Body)}</div>
+          {(canManage ? CommentControls(comment) : "")}
+        </div>
+        """;
+
+    private static string CommentControls(Comment comment) => $"""
+        <div class="comment-manage">
+          <button type="button" class="comment-edit-toggle" data-id="{comment.Id}" data-body="{Esc(comment.Body)}" aria-label="Редактировать комментарий" title="Редактировать">✎</button>
+          <form method="post" action="/comment/{comment.Id}/delete">
+            <input type="hidden" name="expected" value="{Esc(comment.Body)}">
+            <input type="hidden" name="key">
+            <input type="hidden" name="returnUrl">
+            <button type="submit" class="comment-delete" aria-label="Удалить комментарий" title="Удалить" onclick="return confirm('Удалить комментарий без возможности восстановления?')">×</button>
+          </form>
         </div>
         """;
 
     /// <summary>Блок комментария со ссылкой на страницу, к которой он оставлен.</summary>
-    private static string CommentBlockWithTarget(Comment comment, ApiModel model)
+    private static string CommentBlockWithTarget(Comment comment, ApiModel model, bool canManage = false)
     {
         var target = comment.Target.Split('/', 2);
         if (!model.BySlug.TryGetValue(target[0], out var type))
-            return CommentBlock(comment);
+            return CommentBlock(comment, canManage);
 
         var targetUrl = "/type/" + type.Slug;
         var targetTitle = type.FullName;
@@ -151,7 +164,7 @@ public static class Pages
         {
             var member = type.Members.Concat(type.Extensions).FirstOrDefault(item => item.Slug == target[1]);
             if (member is null)
-                return CommentBlock(comment);
+                return CommentBlock(comment, canManage);
             targetUrl += "/" + member.Slug;
             targetTitle += "." + member.Name;
         }
@@ -160,6 +173,7 @@ public static class Pages
             <div class="comment">
               <div class="meta">{Esc(comment.Author)} · {Esc(comment.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))} · {Link(targetUrl, targetTitle)}</div>
               <div class="body md">{Markdown.ToHtml(comment.Body)}</div>
+              {(canManage ? CommentControls(comment) : "")}
             </div>
             """;
     }

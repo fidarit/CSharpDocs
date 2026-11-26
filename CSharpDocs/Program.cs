@@ -23,7 +23,7 @@ options.ReleaseSourceData();
 Console.WriteLine($"Загружено типов: {model.Types.Count}");
 
 var store = new CommentStore(options.DbPath);
-var docsServer = new DocsServer(model, store, LoadStatic(), options.McpReadOnly);
+var docsServer = new DocsServer(model, store, LoadStatic(), options.McpReadOnly, options.CommentAdminKey);
 var mcpService = new McpService(docsServer, options.McpEnabled, options.McpReadOnly);
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.WebHost.UseUrls(options.Urls);

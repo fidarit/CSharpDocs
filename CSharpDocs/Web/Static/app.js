@@ -31,6 +31,84 @@
   var contentEl = document.getElementById("content");
   var searchEl = document.getElementById("q");
   var clearEl = document.getElementById("q-clear");
+  var COMMENT_ADMIN_KEY_STORE = "csharp-docs:comment-admin-key";
+
+  function cachedCommentAdminKey() {
+    try {
+      var cached = JSON.parse(sessionStorage.getItem(COMMENT_ADMIN_KEY_STORE) || "null");
+      if (cached && cached.key && Date.now() < cached.expires) return cached.key;
+      sessionStorage.removeItem(COMMENT_ADMIN_KEY_STORE);
+    } catch (e) {}
+    return "";
+  }
+
+  function requestCommentAdminKey() {
+    var cachedKey = cachedCommentAdminKey();
+    if (cachedKey) return Promise.resolve(cachedKey);
+
+    return new Promise(function (resolve) {
+      var dialog = document.getElementById("comment-key-dialog");
+      if (!dialog) {
+        dialog = document.createElement("dialog");
+        dialog.id = "comment-key-dialog";
+        dialog.className = "comment-key-dialog";
+        dialog.innerHTML = '<form method="dialog"><h2>Управление комментариями</h2><label>Ключ управления<input type="password" name="key" autocomplete="current-password" required></label><div class="comment-key-actions"><button value="cancel" formnovalidate>Отмена</button><button value="ok">Продолжить</button></div></form>';
+        document.body.appendChild(dialog);
+      }
+      var input = dialog.querySelector('input[name="key"]');
+      input.value = "";
+      dialog.addEventListener("close", function onClose() {
+        dialog.removeEventListener("close", onClose);
+        if (dialog.returnValue !== "ok" || !input.value) { resolve(""); return; }
+        var key = input.value;
+        try {
+          sessionStorage.setItem(COMMENT_ADMIN_KEY_STORE, JSON.stringify({ key: key, expires: Date.now() + 5 * 60 * 1000 }));
+        } catch (e) {}
+        resolve(key);
+      });
+      dialog.showModal();
+      input.focus();
+    });
+  }
+
+  function openCommentEditor(button) {
+    requestCommentAdminKey().then(function (key) {
+      if (!key) return;
+      var dialog = document.getElementById("comment-edit-dialog");
+      if (!dialog) {
+        dialog = document.createElement("dialog");
+        dialog.id = "comment-edit-dialog";
+        dialog.className = "comment-edit-dialog";
+        dialog.innerHTML = '<form><h2>Редактировать комментарий</h2><textarea name="body" rows="8" maxlength="10000" required></textarea><div class="comment-edit-actions"><button type="button" class="comment-edit-cancel">Отмена</button><button type="submit">Сохранить</button></div></form>';
+        document.body.appendChild(dialog);
+        dialog.querySelector("form").addEventListener("submit", function (event) {
+          event.preventDefault();
+          requestCommentAdminKey().then(function (key) {
+            if (!key) return;
+            var data = dialog.dataset;
+            var post = document.createElement("form");
+            post.method = "post";
+            post.action = "/comment/" + data.id + "/edit";
+            [["expected", data.expected], ["body", dialog.querySelector("textarea").value], ["key", key], ["returnUrl", location.pathname + location.search + location.hash]].forEach(function (pair) {
+              var input = document.createElement("input");
+              input.type = "hidden";
+              input.name = pair[0];
+              input.value = pair[1];
+              post.appendChild(input);
+            });
+            document.body.appendChild(post);
+            HTMLFormElement.prototype.submit.call(post);
+          });
+        });
+        dialog.querySelector(".comment-edit-cancel").addEventListener("click", function () { dialog.close(); });
+      }
+      dialog.dataset.id = button.dataset.id;
+      dialog.dataset.expected = button.dataset.body;
+      dialog.querySelector("textarea").value = button.dataset.body;
+      dialog.showModal();
+      dialog.querySelector("textarea").focus();
+    });
+  }
 
   var entries = [];              // все узлы дерева (для фильтрации)
   var byKey = {};                // key -> entry
@@ -446,6 +524,21 @@
   // --- Комментарии ---
   function bindCommentForms() {
     var name = localStorage.getItem("csharp-docs:author") || "";
+    contentEl.querySelectorAll(".comment-edit-toggle").forEach(function (button) {
+      button.addEventListener("click", function () { openCommentEditor(button); });
+    });
+    contentEl.querySelectorAll(".comment-manage form").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        requestCommentAdminKey().then(function (key) {
+          if (!key) return;
+          form.querySelector('input[name="key"]').value = key;
+          var returnUrl = form.querySelector('input[name="returnUrl"]');
+          if (returnUrl) returnUrl.value = location.pathname + location.search + location.hash;
+          HTMLFormElement.prototype.submit.call(form);
+        });
+      });
+    });
     contentEl.querySelectorAll(".comment-form").forEach(function (f) {
       var input = f.querySelector('input[name="author"]');
       if (input && !input.value) input.value = name;

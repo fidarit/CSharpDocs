@@ -145,6 +145,50 @@ public class ServerTests
     }
 
     [Fact]
+    public void Comment_Changes_Require_Key_And_Reject_Stale_Forms()
+    {
+        var model = TestModel.LoadOrSkip();
+        var db = Path.Combine(Path.GetTempPath(), $"docs-{Guid.NewGuid():N}.db");
+        using var store = new CommentStore(db);
+        var server = new DocsServer(model, store, [], commentAdminKey: "known-key");
+        try
+        {
+            var type = model.Types[0];
+            server.AddComment(new CommentForm(type.Slug, "Иван", "Исходный текст"));
+            var comment = store.All().Single();
+            Assert.Equal(403, server.EditComment(comment.Id, comment.Body, "Подмена", "wrong").Status);
+            var editRedirect = server.EditComment(comment.Id, comment.Body, "Изменено", "known-key", "/all");
+            Assert.Equal(303, editRedirect.Status);
+            Assert.Equal("/all", Body(editRedirect));
+            Assert.Equal(409, server.EditComment(comment.Id, comment.Body, "Старое изменение", "known-key").Status);
+            comment = store.All().Single();
+            Assert.Contains("Изменено", Body(server.TypePage(type.Slug)));
+            var deleteRedirect = server.DeleteComment(comment.Id, comment.Body, "known-key", "https://example.com");
+            Assert.Equal(303, deleteRedirect.Status);
+            Assert.Equal("/type/" + type.Slug + "#comments", Body(deleteRedirect));
+            Assert.Empty(store.All());
+        }
+        finally { File.Delete(db); }
+    }
+
+    [Fact]
+    public void Comment_Changes_Are_Disabled_Without_Configured_Key()
+    {
+        var model = TestModel.LoadOrSkip();
+        var db = Path.Combine(Path.GetTempPath(), $"docs-{Guid.NewGuid():N}.db");
+        using var store = new CommentStore(db);
+        var server = new DocsServer(model, store, []);
+        try
+        {
+            server.AddComment(new CommentForm(model.Types[0].Slug, "Иван", "Не менять"));
+            var comment = store.All().Single();
+            Assert.Equal(403, server.DeleteComment(comment.Id, comment.Body, "anything").Status);
+            Assert.Single(store.All());
+        }
+        finally { File.Delete(db); }
+    }
+
+    [Fact]
     public void Mcp_Reads_Documentation_And_Comments()
     {
         var (server, model, db) = Create();
