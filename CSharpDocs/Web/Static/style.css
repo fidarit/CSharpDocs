@@ -61,7 +61,7 @@ a:hover { text-decoration: underline; }
 .tree .kind { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .tree .ext { font-size: 10px; color: var(--ext); margin-left: 2px; }
 .tree .comment-badge { font-size: 10px; color: var(--badge-fg); background: var(--badge-bg); border: 1px solid var(--border); border-radius: 9px; padding: 0 6px; margin-left: auto; }
-.tree a { color: var(--fg); }
+.tree a { color: var(--fg); cursor: pointer; }
 .tree a:hover { color: var(--accent); }
 .tree .children { display: none; }
 .tree .children.open { display: block; }

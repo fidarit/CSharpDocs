@@ -26,7 +26,7 @@
   }
 
   var HISTORY_STORE = "csharp-docs:history";
-  var MAX_HISTORY = 3;
+  var MAX_HISTORY = 5;
   var treeEl = document.getElementById("tree");
   var contentEl = document.getElementById("content");
   var searchEl = document.getElementById("q");
@@ -113,10 +113,10 @@
   var entries = [];              // все узлы дерева (для фильтрации)
   var byKey = {};                // key -> entry
   var bySlug = {};               // slug типа -> entry (для подсветки/скролла)
-  var visited = loadHistory();   // последние посещённые страницы (ключи узлов), не более MAX_HISTORY
+  var visited = loadHistory();   // последние раскрытые узлы, не более MAX_HISTORY
   var searching = false;
 
-  // --- История посещений (3 последних страницы) ---
+  // --- История раскрытых узлов ---
   function loadHistory() {
     try { var a = JSON.parse(localStorage.getItem(HISTORY_STORE)); return Array.isArray(a) ? a : []; }
     catch (e) { return []; }
@@ -124,9 +124,11 @@
   function saveHistory() {
     try { localStorage.setItem(HISTORY_STORE, JSON.stringify(visited)); } catch (e) {}
   }
-  function rememberVisit(key) {
-    if (!key || visited[0] === key) return;
-    visited = [key].concat(visited.filter(function (k) { return k !== key; })).slice(0, MAX_HISTORY);
+  function rememberExpansion(key, expanded) {
+    if (!key) return;
+    visited = expanded
+      ? [key].concat(visited.filter(function (k) { return k !== key; })).slice(0, MAX_HISTORY)
+      : visited.filter(function (k) { return k !== key; });
     saveHistory();
   }
 
@@ -159,7 +161,8 @@
 
     if (data.slug) {
       var a = document.createElement("a");
-      a.href = "/type/" + data.slug;
+      a.dataset.href = "/type/" + data.slug;
+      a.href = a.dataset.href;
       a.textContent = data.name;
       node.appendChild(a);
     } else {
@@ -202,10 +205,24 @@
       entry.box = box;
       setBoxOpen(node, false);   // раскрытие задаётся recomputeExpansion()
 
-      // Ручное раскрытие/скрытие — временное, не сохраняется (иначе снова «куча раскрытых»).
-      toggle.addEventListener("click", function (e) {
+      function toggleBox(e) {
         e.stopPropagation();
-        setBoxOpen(node, !box.classList.contains("open"));
+        toggleNode();
+      }
+      function toggleNode() {
+        var expanded = !box.classList.contains("open");
+        rememberExpansion(node.dataset.key, expanded);
+        setBoxOpen(node, expanded);
+      }
+      toggle.addEventListener("click", toggleBox);
+      node.addEventListener("click", function (e) {
+        if (e.target.closest(".toggle")) return;
+        var link = e.target.closest("a");
+        if (link && link.hasAttribute("href")) {
+          if (!box.classList.contains("open")) toggleNode();
+          return;
+        }
+        toggleNode();
       });
     }
     return li;
@@ -222,9 +239,17 @@
 
   // Подсвечивает узел текущей страницы. Возвращает entry или null.
   function setActiveClass(slug) {
-    treeEl.querySelectorAll(".node.active").forEach(function (n) { n.classList.remove("active"); });
+    treeEl.querySelectorAll(".node.active").forEach(function (n) {
+      n.classList.remove("active");
+      var link = n.querySelector(":scope > a");
+      if (link) link.href = link.dataset.href;
+    });
     var entry = slug ? bySlug[slug] : null;
-    if (entry) entry.node.classList.add("active");
+    if (entry) {
+      entry.node.classList.add("active");
+      var link = entry.node.querySelector(":scope > a");
+      if (link) link.removeAttribute("href");
+    }
     return entry;
   }
 
@@ -233,20 +258,25 @@
   function markActive(slug, scroll) {
     var entry = setActiveClass(slug);
     if (!entry) return;
-    rememberVisit(entry.node.dataset.key);
-    // Раскрываем только пути к последним посещённым страницам — без накопления.
     recomputeExpansion();
+    revealAncestors(entry.node.dataset.key);
     if (scroll !== false) scrollTreeTo(entry.node);
   }
 
-  // Раскрывает только пути к последним посещённым страницам; всё прочее свернуто.
+  // Раскрывает последние посещённые узлы и пути к ним; всё прочее свернуто.
   function recomputeExpansion() {
     entries.forEach(function (e) { if (e.box) setBoxOpen(e.node, false); });
     visited.forEach(revealPath);
   }
 
-  // Раскрывает предков узла key (сам узел не раскрываем).
+  // Раскрывает узел key и его предков.
   function revealPath(key) {
+    var e = byKey[key];
+    if (e && e.box) setBoxOpen(e.node, true);
+    revealAncestors(key);
+  }
+
+  function revealAncestors(key) {
     var e = byKey[key];
     for (var pk = e ? e.parentKey : null; pk; pk = byKey[pk] ? byKey[pk].parentKey : null) {
       var p = byKey[pk];
@@ -513,6 +543,7 @@
     if (!isInternalLink(a)) return;
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     e.preventDefault();
+    if (new URL(a.href).href === location.href) return;
     loadUrl(a.getAttribute("href"), true);
   });
 
