@@ -1,5 +1,7 @@
 # CSharpDocs
 
+[English](README.EN.md)
+
 Веб-сервер документации .NET-сборок. Работает с XML-документацией компилятора
 (`<Assembly>.xml`) и соответствующей сборкой (`<Assembly>.dll`).
 
